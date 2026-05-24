@@ -1,20 +1,44 @@
 #!/usr/bin/env node
 import { Command } from 'commander'
+import { marked } from 'marked'
+import { markedTerminal } from 'marked-terminal'
 import { webFetch, webSearch, WebtoolError, ENGINE_NAMES } from '../src/index.ts'
 import { fetchInputSchema, searchInputSchema } from '../src/schemas.ts'
 import { runMcpServer } from './mcp.ts'
 import type { EngineName, FetchFormat, TimeRange } from '../src/core/types.ts'
 
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 
 function die(code: number, msg: string): never {
   process.stderr.write(msg.endsWith('\n') ? msg : msg + '\n')
   process.exit(code)
 }
 
-function out(text: string): void {
-  process.stdout.write(text)
-  if (!text.endsWith('\n')) process.stdout.write('\n')
+// Configure marked-terminal lazily so we only pay the cost when we actually render.
+let markedConfigured = false
+function ensureMarked(): void {
+  if (markedConfigured) return
+  // @types/marked-terminal@6 is behind marked-terminal@7 in its return type;
+  // the runtime object is a valid Marked extension, the static types just disagree.
+  marked.use(markedTerminal() as unknown as Parameters<typeof marked.use>[0])
+  markedConfigured = true
+}
+
+function shouldRender(opts: { raw?: boolean; renderable?: boolean }): boolean {
+  if (opts.raw) return false
+  if (opts.renderable === false) return false
+  if (process.env.NO_COLOR) return false
+  return Boolean(process.stdout.isTTY)
+}
+
+function out(text: string, opts: { raw?: boolean; renderable?: boolean } = {}): void {
+  let body = text
+  if (shouldRender(opts)) {
+    ensureMarked()
+    body = marked.parse(text) as string
+  }
+  process.stdout.write(body)
+  if (!body.endsWith('\n')) process.stdout.write('\n')
 }
 
 function classifyError(e: unknown): number {
@@ -38,16 +62,19 @@ program
   .option('-f, --format <fmt>', 'output format: markdown | text | html', 'markdown')
   .option('-m, --max-bytes <n>', 'truncate at N bytes', (v) => Number.parseInt(v, 10))
   .option('-t, --timeout-ms <n>', 'request timeout in ms', (v) => Number.parseInt(v, 10))
-  .action(async (url: string, opts: { format?: string; maxBytes?: number; timeoutMs?: number }) => {
+  .option('--raw', 'print raw text without terminal markdown rendering')
+  .action(async (url: string, opts: { format?: string; maxBytes?: number; timeoutMs?: number; raw?: boolean }) => {
+    const format = (opts.format ?? 'markdown') as FetchFormat
     const parsed = fetchInputSchema.safeParse({
       url,
-      format: (opts.format ?? 'markdown') as FetchFormat,
+      format,
       maxBytes: opts.maxBytes,
       timeoutMs: opts.timeoutMs,
     })
     if (!parsed.success) die(2, parsed.error.toString())
     try {
-      out(await webFetch(parsed.data))
+      // Only markdown output is worth rendering; text/html stay raw.
+      out(await webFetch(parsed.data), { raw: opts.raw, renderable: format === 'markdown' })
     } catch (e) {
       die(classifyError(e), `${(e as Error).message}`)
     }
@@ -60,7 +87,8 @@ program
   .option('-l, --limit <n>', 'max final results', (v) => Number.parseInt(v, 10))
   .option('--time <range>', 'time filter: day | week | month | year')
   .option('--site <domain>', 'restrict to a site (injects site: operator)')
-  .action(async (query: string, opts: { engines?: string; limit?: number; time?: string; site?: string }) => {
+  .option('--raw', 'print raw markdown without terminal rendering')
+  .action(async (query: string, opts: { engines?: string; limit?: number; time?: string; site?: string; raw?: boolean }) => {
     let engines: EngineName[] | undefined
     if (opts.engines) {
       const parts = opts.engines.split(',').map(s => s.trim()).filter(Boolean)
@@ -78,7 +106,7 @@ program
     })
     if (!parsed.success) die(2, parsed.error.toString())
     try {
-      out(await webSearch(parsed.data))
+      out(await webSearch(parsed.data), { raw: opts.raw })
     } catch (e) {
       die(classifyError(e), `${(e as Error).message}`)
     }

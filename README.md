@@ -76,24 +76,28 @@ Commands:
 Run `webtool <command> --help` for per-command options.
 ```
 
-Both commands print **plain text to stdout** — `fetch` prints page content, `search` prints a markdown list. No JSON wrapping, ready to pipe.
+Both commands print to stdout. When stdout is an **interactive terminal**, markdown is rendered with colors, headings, and clickable links (via `marked-terminal`). When stdout is a **pipe / file / non-TTY**, the same content is printed as **raw markdown** — perfect for `> page.md` or piping into another command. Use `--raw` to force raw output even in a terminal. `NO_COLOR=1` also disables rendering.
 
 ### `webtool fetch`
 
 ```bash
-webtool fetch https://bun.sh                          # markdown by default
+webtool fetch https://bun.sh                          # markdown, auto-rendered if TTY
 webtool fetch https://example.com --format text       # plain text
 webtool fetch https://example.com --format html       # raw HTML
-webtool fetch https://example.com > page.md           # redirect to file
+webtool fetch https://example.com > page.md           # raw markdown to file
+webtool fetch https://example.com --raw               # raw markdown in terminal
 ```
 
 Options:
 
-| Flag                | Default    | Description                                    |
-| ------------------- | ---------- | ---------------------------------------------- |
-| `--format <fmt>`    | `markdown` | `markdown` \| `text` \| `html`                 |
-| `--max-bytes <n>`   | `100000`   | Truncate output at this many bytes             |
-| `--timeout-ms <n>`  | `30000`    | Per-request timeout                            |
+| Flag                | Default    | Description                                            |
+| ------------------- | ---------- | ------------------------------------------------------ |
+| `--format <fmt>`    | `markdown` | `markdown` \| `text` \| `html`                         |
+| `--max-bytes <n>`   | `100000`   | Truncate output at this many bytes                     |
+| `--timeout-ms <n>`  | `30000`    | Per-request timeout                                    |
+| `--raw`             | —          | Disable terminal markdown rendering (TTY only)         |
+
+> Rendering only applies to `--format markdown`. `text` and `html` are always printed verbatim.
 
 ### `webtool search`
 
@@ -119,6 +123,7 @@ Options:
 | `--limit <n>`         | `10`                               | Max aggregated results (1–30)                              |
 | `--time <range>`      | —                                  | `day` \| `week` \| `month` \| `year` (engines may ignore)  |
 | `--site <domain>`     | —                                  | Restrict to a domain (injects `site:` operator)            |
+| `--raw`               | —                                  | Disable terminal markdown rendering (TTY only)             |
 
 ### Exit codes
 
