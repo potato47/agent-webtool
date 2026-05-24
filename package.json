@@ -1,0 +1,51 @@
+{
+  "name": "agent-webtool",
+  "version": "0.1.0",
+  "description": "Web fetch and multi-engine search tools for AI agents (CLI + MCP server). No API keys required.",
+  "keywords": [
+    "agent",
+    "ai",
+    "mcp",
+    "web-search",
+    "web-fetch",
+    "duckduckgo",
+    "bing",
+    "brave",
+    "yahoo",
+    "scraping",
+    "claude",
+    "llm",
+    "tools"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "webtool": "./dist/cli.mjs",
+    "agent-webtool": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bun build bin/cli.ts --target=node --format=esm --outfile=dist/cli.mjs && chmod +x dist/cli.mjs",
+    "cli": "bun bin/cli.ts",
+    "mcp": "bun bin/cli.ts mcp",
+    "test": "bun test test/",
+    "prepublishOnly": "bun run build && bun test test/"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/bun": "latest",
+    "@types/turndown": "^5.0.6",
+    "cheerio": "^1.2.0",
+    "commander": "^14.0.3",
+    "turndown": "^7.2.4",
+    "typescript": "^5",
+    "zod": "^4.4.3"
+  }
+}
