@@ -262,10 +262,11 @@ Returns a numbered markdown list, one entry per line pair (title link + snippet)
    Bun is a JavaScript runtime, package manager and test runner designed as a drop-in replacement for Node.js.
 ```
 
-If some engines fail (timeout / challenge page / parse error), a footer line appears at the end:
+If some engines fail (timeout / challenge page / parse error), or return a page with zero parsed hits, footer lines appear at the end:
 
 ```
-> Note: 1 engine(s) returned no results — duckduckgo.
+> Note: 1 engine(s) failed — duckduckgo.
+> Note: 1 engine(s) returned no results — brave.
 ```
 
 If **all** engines fail, the CLI exits with code `3` and prints the error to stderr.

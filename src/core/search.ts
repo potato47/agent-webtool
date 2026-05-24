@@ -97,10 +97,17 @@ function escapeMd(s: string): string {
 function formatMarkdown(
   results: Array<{ title: string; url: string; snippet: string }>,
   failed: EngineName[],
+  noResults: EngineName[],
 ): string {
   if (results.length === 0) {
+    if (failed.length > 0 && noResults.length > 0) {
+      return `No results. Engines failed: ${failed.join(', ')}. Engines returned no results: ${noResults.join(', ')}.`
+    }
     if (failed.length > 0) {
       return `No results. All engines failed: ${failed.join(', ')}.`
+    }
+    if (noResults.length > 0) {
+      return `No results. All engines returned no results: ${noResults.join(', ')}.`
     }
     return 'No results.'
   }
@@ -111,7 +118,10 @@ function formatMarkdown(
     lines.push('')
   })
   if (failed.length > 0) {
-    lines.push(`> Note: ${failed.length} engine(s) returned no results — ${failed.join(', ')}.`)
+    lines.push(`> Note: ${failed.length} engine(s) failed — ${failed.join(', ')}.`)
+  }
+  if (noResults.length > 0) {
+    lines.push(`> Note: ${noResults.length} engine(s) returned no results — ${noResults.join(', ')}.`)
   }
   return lines.join('\n').trimEnd() + '\n'
 }
@@ -130,11 +140,12 @@ export async function webSearch(raw: SearchInput, deps: SearchDeps = {}): Promis
   )
 
   const failedEngines: EngineName[] = []
+  const noResultEngines: EngineName[] = []
   const perEngine: Array<{ engine: EngineName; hits: RawHit[] }> = []
   settled.forEach((r, i) => {
     const eng = engines[i]!
     if (r.status === 'fulfilled') {
-      if (r.value.length === 0) failedEngines.push(eng)
+      if (r.value.length === 0) noResultEngines.push(eng)
       else perEngine.push({ engine: eng, hits: r.value.slice(0, perEnginePull) })
     } else {
       failedEngines.push(eng)
@@ -143,9 +154,12 @@ export async function webSearch(raw: SearchInput, deps: SearchDeps = {}): Promis
 
   // If every engine failed, surface that as an error (caller decides how to handle).
   if (perEngine.length === 0) {
+    const detailParts: string[] = []
+    if (failedEngines.length > 0) detailParts.push(`failed: ${failedEngines.join(', ')}`)
+    if (noResultEngines.length > 0) detailParts.push(`no results: ${noResultEngines.join(', ')}`)
     throw new WebtoolError(
       'all_engines_failed',
-      `All search engines failed or returned no results: ${failedEngines.join(', ')}`,
+      `All search engines failed or returned no results (${detailParts.join('; ')})`,
     )
   }
 
@@ -177,5 +191,5 @@ export async function webSearch(raw: SearchInput, deps: SearchDeps = {}): Promis
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
 
-  return formatMarkdown(scored, failedEngines)
+  return formatMarkdown(scored, failedEngines, noResultEngines)
 }

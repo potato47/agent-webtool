@@ -1,6 +1,6 @@
 {
   "name": "agent-webtool",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Web fetch and multi-engine search tools for AI agents (CLI + MCP server). No API keys required.",
   "keywords": [
     "agent",

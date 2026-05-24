@@ -59,7 +59,7 @@ describe('webSearch markdown output', () => {
     expect(md).not.toContain('"durationMs"')
   })
 
-  test('partial failure appends a footer note', async () => {
+  test('partial failure appends a failed footer note', async () => {
     const fetcher = (url: string) => {
       if (url.includes('bing.com')) return Promise.reject(new Error('boom'))
       if (url.includes('duckduckgo.com')) return mockFetch('duckduckgo')
@@ -72,7 +72,30 @@ describe('webSearch markdown output', () => {
       { fetch: fetcher as any },
     )
     expect(md).toContain('1. [')
-    expect(md).toMatch(/^> Note:.*bing/m)
+    expect(md).toContain('> Note: 1 engine(s) failed — bing.')
+    expect(md).not.toContain('returned no results — bing')
+  })
+
+  test('empty parsed results append a no-results footer note', async () => {
+    const emptyPage = {
+      finalUrl: 'https://brave.example/search',
+      status: 200,
+      contentType: 'text/html',
+      body: new TextEncoder().encode('<html><body>No parseable SERP hits</body></html>').buffer as ArrayBuffer,
+    }
+    const fetcher = (url: string) => {
+      if (url.includes('brave.com')) return Promise.resolve(emptyPage)
+      if (url.includes('duckduckgo.com')) return mockFetch('duckduckgo')
+      if (url.includes('bing.com'))       return mockFetch('bing')
+      if (url.includes('yahoo.com'))      return mockFetch('yahoo')
+      throw new Error(`unexpected: ${url}`)
+    }
+    const md = await webSearch(
+      { query: 'bun javascript runtime' },
+      { fetch: fetcher as any },
+    )
+    expect(md).toContain('1. [')
+    expect(md).toContain('> Note: 1 engine(s) returned no results — brave.')
   })
 
   test('engines subset is honored', async () => {
