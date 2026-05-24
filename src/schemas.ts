@@ -25,16 +25,6 @@ export const fetchInputSchema = z
   })
   .strict()
 
-export const fetchOutputSchema = z.object({
-  url: z.string(),
-  status: z.number(),
-  contentType: z.string(),
-  content: z.string(),
-  bytes: z.number(),
-  truncated: z.boolean(),
-  durationMs: z.number(),
-})
-
 export const searchInputSchema = z
   .object({
     query: z.string().min(1).describe('Search query'),
@@ -60,32 +50,6 @@ export const searchInputSchema = z
       .describe('Restrict to a domain; injected as `site:` operator into query'),
   })
   .strict()
-
-export const searchOutputSchema = z.object({
-  query: z.string(),
-  engines: z.array(z.enum(ENGINE_NAMES)),
-  results: z.array(
-    z.object({
-      title: z.string(),
-      url: z.string(),
-      snippet: z.string(),
-      score: z.number(),
-      sources: z.array(
-        z.object({
-          engine: z.enum(ENGINE_NAMES),
-          rank: z.number(),
-        }),
-      ),
-    }),
-  ),
-  errors: z.array(
-    z.object({
-      engine: z.enum(ENGINE_NAMES),
-      message: z.string(),
-    }),
-  ),
-  durationMs: z.number(),
-})
 
 export type FetchInputZ = z.infer<typeof fetchInputSchema>
 export type SearchInputZ = z.infer<typeof searchInputSchema>

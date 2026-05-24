@@ -1,12 +1,9 @@
 import { adapters } from './engines/index.ts'
-import { fetchWithGuards } from './http.ts'
+import { fetchWithGuards, WebtoolError } from './http.ts'
 import type {
   EngineName,
   RawHit,
-  SearchError,
-  SearchHit,
   SearchInput,
-  SearchOutput,
 } from './types.ts'
 import { ENGINE_NAMES } from './types.ts'
 
@@ -36,35 +33,20 @@ export function normalizeUrl(input: string): string {
   if (u.protocol === 'http:') u.protocol = 'https:'
   u.hostname = u.hostname.toLowerCase().replace(/^www\./, '')
   u.hash = ''
-  // strip tracking params
   for (const key of Array.from(u.searchParams.keys())) {
     if (TRACKING_PARAMS.has(key)) u.searchParams.delete(key)
     else if (TRACKING_PARAM_PREFIXES.some(p => key.startsWith(p))) u.searchParams.delete(key)
   }
-  // canonicalize: sort keys
   const sorted = [...u.searchParams.entries()].sort(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0,
   )
   const newParams = new URLSearchParams()
   for (const [k, v] of sorted) newParams.append(k, v)
   u.search = newParams.toString() ? `?${newParams.toString()}` : ''
-  // strip trailing slash on path (preserve root "/")
   if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
     u.pathname = u.pathname.replace(/\/+$/, '')
   }
   return u.toString()
-}
-
-interface AggKey {
-  norm: string
-}
-
-interface AggEntry {
-  norm: string
-  titles: Map<EngineName, string>
-  snippets: Map<EngineName, string>
-  rawUrls: Map<EngineName, string>
-  sources: Array<{ engine: EngineName; rank: number }>
 }
 
 function buildQuery(input: SearchInput): string {
@@ -75,7 +57,6 @@ function buildQuery(input: SearchInput): string {
 
 export interface SearchDeps {
   fetch?: typeof fetchWithGuards
-  now?: () => number
 }
 
 async function fetchEngine(
@@ -90,26 +71,53 @@ async function fetchEngine(
     timeoutMs: PER_ENGINE_TIMEOUT_MS,
     redirect: 'follow',
   })
-  if (res.status >= 400) {
-    throw new Error(`${engine} returned HTTP ${res.status}`)
-  }
+  if (res.status >= 400) throw new Error(`${engine} returned HTTP ${res.status}`)
   const html = new TextDecoder('utf-8', { fatal: false }).decode(res.body)
   return adapter.parse(html)
 }
 
+interface AggEntry {
+  norm: string
+  titles: Map<EngineName, string>
+  snippets: Map<EngineName, string>
+  sources: Array<{ engine: EngineName; rank: number }>
+}
+
 function pickLongest(map: Map<EngineName, string>): string {
   let best = ''
-  for (const v of map.values()) {
-    if (v.length > best.length) best = v
-  }
+  for (const v of map.values()) if (v.length > best.length) best = v
   return best
 }
 
-export async function webSearch(
-  raw: SearchInput,
-  deps: SearchDeps = {},
-): Promise<SearchOutput> {
-  const start = (deps.now ?? Date.now)()
+function escapeMd(s: string): string {
+  // Light escape for square brackets in titles so the link syntax stays intact.
+  return s.replace(/\[/g, '\\[').replace(/\]/g, '\\]')
+}
+
+function formatMarkdown(
+  results: Array<{ title: string; url: string; snippet: string }>,
+  failed: EngineName[],
+): string {
+  if (results.length === 0) {
+    if (failed.length > 0) {
+      return `No results. All engines failed: ${failed.join(', ')}.`
+    }
+    return 'No results.'
+  }
+  const lines: string[] = []
+  results.forEach((r, i) => {
+    lines.push(`${i + 1}. [${escapeMd(r.title)}](${r.url})`)
+    if (r.snippet) lines.push(`   ${r.snippet.replace(/\s+/g, ' ').trim()}`)
+    lines.push('')
+  })
+  if (failed.length > 0) {
+    lines.push(`> Note: ${failed.length} engine(s) returned no results — ${failed.join(', ')}.`)
+  }
+  return lines.join('\n').trimEnd() + '\n'
+}
+
+/** Run a multi-engine web search and return results as a markdown list. */
+export async function webSearch(raw: SearchInput, deps: SearchDeps = {}): Promise<string> {
   const engines: EngineName[] = (raw.engines && raw.engines.length > 0)
     ? raw.engines
     : [...ENGINE_NAMES]
@@ -121,25 +129,26 @@ export async function webSearch(
     engines.map(eng => fetchEngine(eng, query, raw.timeRange, deps)),
   )
 
-  const errors: SearchError[] = []
+  const failedEngines: EngineName[] = []
   const perEngine: Array<{ engine: EngineName; hits: RawHit[] }> = []
   settled.forEach((r, i) => {
     const eng = engines[i]!
     if (r.status === 'fulfilled') {
-      if (r.value.length === 0) {
-        // Fetch succeeded but parser found no hits — likely a challenge page
-        // or a layout change. Report as a partial failure so the caller knows.
-        errors.push({ engine: eng, message: 'no results parsed (possible challenge page or layout change)' })
-      } else {
-        perEngine.push({ engine: eng, hits: r.value.slice(0, perEnginePull) })
-      }
+      if (r.value.length === 0) failedEngines.push(eng)
+      else perEngine.push({ engine: eng, hits: r.value.slice(0, perEnginePull) })
     } else {
-      const message = r.reason instanceof Error ? r.reason.message : String(r.reason)
-      errors.push({ engine: eng, message })
+      failedEngines.push(eng)
     }
   })
 
-  // RRF aggregation, key = normalized URL
+  // If every engine failed, surface that as an error (caller decides how to handle).
+  if (perEngine.length === 0) {
+    throw new WebtoolError(
+      'all_engines_failed',
+      `All search engines failed or returned no results: ${failedEngines.join(', ')}`,
+    )
+  }
+
   const agg = new Map<string, AggEntry>()
   for (const { engine, hits } of perEngine) {
     for (const hit of hits) {
@@ -147,44 +156,26 @@ export async function webSearch(
       if (!norm) continue
       let entry = agg.get(norm)
       if (!entry) {
-        entry = {
-          norm,
-          titles: new Map(),
-          snippets: new Map(),
-          rawUrls: new Map(),
-          sources: [],
-        }
+        entry = { norm, titles: new Map(), snippets: new Map(), sources: [] }
         agg.set(norm, entry)
       }
-      // Only first occurrence per engine (defensive against dup hits within one SERP)
       if (!entry.titles.has(engine)) {
         entry.titles.set(engine, hit.title)
         entry.snippets.set(engine, hit.snippet)
-        entry.rawUrls.set(engine, hit.url)
         entry.sources.push({ engine, rank: hit.rank })
       }
     }
   }
 
-  const results: SearchHit[] = []
-  for (const entry of agg.values()) {
-    const score = entry.sources.reduce((acc, s) => acc + 1 / (RRF_K + s.rank), 0)
-    results.push({
-      title: pickLongest(entry.titles),
-      url: entry.norm,
-      snippet: pickLongest(entry.snippets),
-      score,
-      sources: entry.sources.sort((a, b) => a.rank - b.rank),
-    })
-  }
-  results.sort((a, b) => b.score - a.score)
-  const top = results.slice(0, limit)
+  const scored = [...agg.values()]
+    .map(e => ({
+      title: pickLongest(e.titles),
+      url: e.norm,
+      snippet: pickLongest(e.snippets),
+      score: e.sources.reduce((a, s) => a + 1 / (RRF_K + s.rank), 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
 
-  return {
-    query,
-    engines,
-    results: top,
-    errors,
-    durationMs: (deps.now ?? Date.now)() - start,
-  }
+  return formatMarkdown(scored, failedEngines)
 }

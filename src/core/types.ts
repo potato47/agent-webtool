@@ -10,16 +10,6 @@ export interface FetchInput {
   timeoutMs?: number
 }
 
-export interface FetchOutput {
-  url: string
-  status: number
-  contentType: string
-  content: string
-  bytes: number
-  truncated: boolean
-  durationMs: number
-}
-
 export type TimeRange = 'day' | 'week' | 'month' | 'year'
 
 export interface SearchInput {
@@ -30,37 +20,12 @@ export interface SearchInput {
   site?: string
 }
 
+/** Internal: a single parsed result from one search engine. */
 export interface RawHit {
   title: string
   url: string
   snippet: string
   rank: number
-}
-
-export interface SearchHitSource {
-  engine: EngineName
-  rank: number
-}
-
-export interface SearchHit {
-  title: string
-  url: string
-  snippet: string
-  score: number
-  sources: SearchHitSource[]
-}
-
-export interface SearchError {
-  engine: EngineName
-  message: string
-}
-
-export interface SearchOutput {
-  query: string
-  engines: EngineName[]
-  results: SearchHit[]
-  errors: SearchError[]
-  durationMs: number
 }
 
 export interface SearchAdapter {

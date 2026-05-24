@@ -33,8 +33,8 @@ describe('normalizeUrl', () => {
   })
 })
 
-describe('webSearch aggregation', () => {
-  test('merges duplicates across engines and sorts by RRF', async () => {
+describe('webSearch markdown output', () => {
+  test('returns numbered markdown list across all engines', async () => {
     const fetcher = (url: string) => {
       if (url.includes('duckduckgo.com')) return mockFetch('duckduckgo')
       if (url.includes('bing.com'))       return mockFetch('bing')
@@ -42,43 +42,37 @@ describe('webSearch aggregation', () => {
       if (url.includes('yahoo.com'))      return mockFetch('yahoo')
       throw new Error(`unexpected url: ${url}`)
     }
-    const out = await webSearch(
-      { query: 'bun javascript runtime', limit: 10 },
+    const md = await webSearch(
+      { query: 'bun javascript runtime', limit: 5 },
       { fetch: fetcher as any },
     )
-    expect(out.engines).toEqual(['duckduckgo', 'bing', 'brave', 'yahoo'])
-    expect(out.errors).toEqual([])
-    expect(out.results.length).toBeGreaterThan(0)
-    // At least one result should have been reported by 2+ engines (bun.sh would)
-    const multi = out.results.filter(r => r.sources.length >= 2)
-    expect(multi.length).toBeGreaterThan(0)
-    // RRF: results must be sorted by score desc
-    for (let i = 1; i < out.results.length; i++) {
-      expect(out.results[i - 1]!.score).toBeGreaterThanOrEqual(out.results[i]!.score)
-    }
-    // Top result must be bun-related and reported by the most engines.
-    expect(out.results[0]!.url.toLowerCase()).toContain('bun')
-    expect(out.results[0]!.sources.length).toBeGreaterThanOrEqual(3)
+    expect(typeof md).toBe('string')
+    // numbered list
+    expect(md).toMatch(/^1\. \[/m)
+    // markdown link syntax
+    expect(md).toMatch(/\[.+\]\(https?:\/\//)
+    // bun-related content present
+    expect(md.toLowerCase()).toContain('bun')
+    // no JSON noise
+    expect(md).not.toContain('"sources"')
+    expect(md).not.toContain('"score"')
+    expect(md).not.toContain('"durationMs"')
   })
 
-  test('partial failure: one engine errors, others still return', async () => {
+  test('partial failure appends a footer note', async () => {
     const fetcher = (url: string) => {
-      if (url.includes('bing.com')) {
-        return Promise.reject(new Error('Bing blew up'))
-      }
+      if (url.includes('bing.com')) return Promise.reject(new Error('boom'))
       if (url.includes('duckduckgo.com')) return mockFetch('duckduckgo')
       if (url.includes('brave.com'))      return mockFetch('brave')
       if (url.includes('yahoo.com'))      return mockFetch('yahoo')
       throw new Error(`unexpected: ${url}`)
     }
-    const out = await webSearch(
+    const md = await webSearch(
       { query: 'bun javascript runtime' },
       { fetch: fetcher as any },
     )
-    expect(out.errors.length).toBe(1)
-    expect(out.errors[0]!.engine).toBe('bing')
-    expect(out.errors[0]!.message).toContain('Bing blew up')
-    expect(out.results.length).toBeGreaterThan(0)
+    expect(md).toContain('1. [')
+    expect(md).toMatch(/^> Note:.*bing/m)
   })
 
   test('engines subset is honored', async () => {
@@ -88,18 +82,15 @@ describe('webSearch aggregation', () => {
       if (url.includes('duckduckgo.com')) return mockFetch('duckduckgo')
       throw new Error(`unexpected: ${url}`)
     }
-    const out = await webSearch(
+    const md = await webSearch(
       { query: 'bun runtime', engines: ['duckduckgo'] },
       { fetch: fetcher as any },
     )
-    expect(out.engines).toEqual(['duckduckgo'])
     expect(calls.length).toBe(1)
-    expect(out.results.length).toBeGreaterThan(0)
-    // No multi-engine hits possible with just one engine
-    expect(out.results.every(r => r.sources.length === 1)).toBe(true)
+    expect(md).toMatch(/^1\. \[/m)
   })
 
-  test('limit caps final result count', async () => {
+  test('limit caps final count', async () => {
     const fetcher = (url: string) => {
       if (url.includes('duckduckgo.com')) return mockFetch('duckduckgo')
       if (url.includes('bing.com'))       return mockFetch('bing')
@@ -107,7 +98,17 @@ describe('webSearch aggregation', () => {
       if (url.includes('yahoo.com'))      return mockFetch('yahoo')
       throw new Error(`unexpected: ${url}`)
     }
-    const out = await webSearch({ query: 'bun', limit: 3 }, { fetch: fetcher as any })
-    expect(out.results.length).toBeLessThanOrEqual(3)
+    const md = await webSearch({ query: 'bun', limit: 3 }, { fetch: fetcher as any })
+    // count "^N. " numbered items
+    const numbered = md.match(/^\d+\. \[/gm) ?? []
+    expect(numbered.length).toBeLessThanOrEqual(3)
+    expect(numbered.length).toBeGreaterThan(0)
+  })
+
+  test('throws when all engines fail', async () => {
+    const fetcher = () => Promise.reject(new Error('blocked'))
+    await expect(
+      webSearch({ query: 'x' }, { fetch: fetcher as any }),
+    ).rejects.toThrow(/All search engines failed/)
   })
 })

@@ -2,19 +2,18 @@ import * as cheerio from 'cheerio'
 import TurndownService from 'turndown'
 import { LRUCache } from './cache.ts'
 import { fetchWithGuards, WebtoolError } from './http.ts'
-import type { FetchInput, FetchOutput, FetchFormat } from './types.ts'
+import type { FetchFormat, FetchInput } from './types.ts'
 
 const CACHE_TTL_MS = 15 * 60 * 1000
 const CACHE_MAX_ENTRIES = 256
 const CACHE_MAX_BYTES = 50 * 1024 * 1024
 
-const cache = new LRUCache<FetchOutput>({
+const cache = new LRUCache<string>({
   maxEntries: CACHE_MAX_ENTRIES,
   maxBytes: CACHE_MAX_BYTES,
   ttlMs: CACHE_TTL_MS,
 })
 
-// Lazy turndown singleton; turndown carries domino which is ~1MB.
 let turndownInstance: TurndownService | null = null
 function getTurndown(): TurndownService {
   if (!turndownInstance) {
@@ -39,17 +38,12 @@ function looksBinary(contentType: string): boolean {
   )
 }
 
-function truncate(s: string, maxBytes: number): { content: string; truncated: boolean; bytes: number } {
+function truncate(s: string, maxBytes: number): string {
   const encoder = new TextEncoder()
   const encoded = encoder.encode(s)
-  if (encoded.byteLength <= maxBytes) {
-    return { content: s, truncated: false, bytes: encoded.byteLength }
-  }
-  // Cut at byte boundary; TextDecoder('utf-8', { fatal:false }) tolerates partial cp at end.
+  if (encoded.byteLength <= maxBytes) return s
   const cut = encoded.slice(0, maxBytes)
-  const decoded = new TextDecoder('utf-8').decode(cut)
-  const marker = '\n\n[truncated]'
-  return { content: decoded + marker, truncated: true, bytes: maxBytes + encoder.encode(marker).byteLength }
+  return new TextDecoder('utf-8').decode(cut) + '\n\n[truncated]'
 }
 
 function htmlToText(html: string): string {
@@ -60,7 +54,6 @@ function htmlToText(html: string): string {
 }
 
 function htmlToMarkdown(html: string): string {
-  // Strip noisy nodes first so turndown doesn't emit them.
   const $ = cheerio.load(html)
   $('script, style, noscript, iframe').remove()
   return getTurndown().turndown($.html())
@@ -68,86 +61,51 @@ function htmlToMarkdown(html: string): string {
 
 export interface FetchDeps {
   fetch?: typeof fetchWithGuards
-  now?: () => number
 }
 
-export async function webFetch(
-  raw: FetchInput,
-  deps: FetchDeps = {},
-): Promise<FetchOutput> {
+/** Fetch a URL and return its content as a plain string (markdown by default). */
+export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<string> {
   const format: FetchFormat = raw.format ?? 'markdown'
   const maxBytes = raw.maxBytes ?? 100_000
   const timeoutMs = raw.timeoutMs ?? 30_000
   const cacheKey = `${raw.url}::${format}::${maxBytes}`
 
   const cached = cache.get(cacheKey)
-  if (cached) return cached
+  if (cached !== undefined) return cached
 
-  const start = (deps.now ?? Date.now)()
   const result = await (deps.fetch ?? fetchWithGuards)(raw.url, {
     timeoutMs,
     redirect: 'same-origin',
   })
 
-  // Cross-origin redirect surfaced as redirect info — return a message,
-  // not the empty body. Lets the agent decide whether to follow.
   if (result.redirect) {
     const msg =
-      `REDIRECT to a different host (status ${result.redirect.status}).\n` +
-      `From: ${result.redirect.from}\nTo: ${result.redirect.to}\n` +
-      `Call WebFetch again with the new URL to follow.`
-    const out: FetchOutput = {
-      url: result.finalUrl,
-      status: result.redirect.status,
-      contentType: result.contentType,
-      content: msg,
-      bytes: new TextEncoder().encode(msg).byteLength,
-      truncated: false,
-      durationMs: (deps.now ?? Date.now)() - start,
-    }
-    cache.set(cacheKey, out, out.bytes)
-    return out
+      `[Redirected to a different host: ${result.redirect.to}]\n` +
+      `[Call web_fetch again with the redirect URL to follow.]`
+    cache.set(cacheKey, msg, msg.length)
+    return msg
   }
 
-  const contentType = result.contentType
-  const raw_bytes = result.body.byteLength
-
-  if (looksBinary(contentType) && format !== 'html') {
+  if (looksBinary(result.contentType) && format !== 'html') {
     throw new WebtoolError(
       'binary_content',
-      `Binary content (${contentType}, ${raw_bytes}B) cannot be converted to ${format}. ` +
+      `Binary content (${result.contentType}, ${result.body.byteLength}B) cannot be converted to ${format}. ` +
         `Use format="html" to fetch raw bytes if you need them.`,
     )
   }
 
   const decoded = new TextDecoder('utf-8', { fatal: false }).decode(result.body)
-
-  let content: string
+  let out: string
   if (format === 'html') {
-    content = decoded
+    out = decoded
   } else if (format === 'text') {
-    content = contentType.includes('text/html') ? htmlToText(decoded) : decoded
+    out = result.contentType.includes('text/html') ? htmlToText(decoded) : decoded
   } else {
-    // markdown
-    if (contentType.includes('text/html')) {
-      content = htmlToMarkdown(decoded)
-    } else {
-      // markdown/plain/json — pass through
-      content = decoded
-    }
+    out = result.contentType.includes('text/html') ? htmlToMarkdown(decoded) : decoded
   }
 
-  const { content: cut, truncated, bytes } = truncate(content, maxBytes)
-  const out: FetchOutput = {
-    url: result.finalUrl,
-    status: result.status,
-    contentType,
-    content: cut,
-    bytes,
-    truncated,
-    durationMs: (deps.now ?? Date.now)() - start,
-  }
-  cache.set(cacheKey, out, bytes)
+  out = truncate(out, maxBytes)
+  cache.set(cacheKey, out, new TextEncoder().encode(out).byteLength)
   return out
 }
 

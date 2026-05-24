@@ -26,12 +26,11 @@ describe('webFetch', () => {
       { url: 'https://example.com/m', format: 'markdown' },
       { fetch: async () => mockResp(HTML) },
     )
-    expect(out.status).toBe(200)
-    expect(out.contentType).toBe('text/html')
-    expect(out.content).toContain('# Hello')
-    expect(out.content).toContain('[bun](https://bun.sh)')
-    expect(out.content).not.toContain('<script>')
-    expect(out.truncated).toBe(false)
+    expect(typeof out).toBe('string')
+    expect(out).toContain('# Hello')
+    expect(out).toContain('[bun](https://bun.sh)')
+    expect(out).not.toContain('<script>')
+    expect(out).not.toContain('[truncated]')
   })
 
   test('text format strips tags', async () => {
@@ -40,10 +39,10 @@ describe('webFetch', () => {
       { url: 'https://example.com/t', format: 'text' },
       { fetch: async () => mockResp(HTML) },
     )
-    expect(out.content).toContain('Hello')
-    expect(out.content).toContain('World')
-    expect(out.content).not.toContain('<h1>')
-    expect(out.content).not.toContain('var x=1')
+    expect(out).toContain('Hello')
+    expect(out).toContain('World')
+    expect(out).not.toContain('<h1>')
+    expect(out).not.toContain('var x=1')
   })
 
   test('html format returns raw', async () => {
@@ -52,7 +51,7 @@ describe('webFetch', () => {
       { url: 'https://example.com/h', format: 'html' },
       { fetch: async () => mockResp(HTML) },
     )
-    expect(out.content).toBe(HTML)
+    expect(out).toBe(HTML)
   })
 
   test('truncates when over maxBytes', async () => {
@@ -62,8 +61,8 @@ describe('webFetch', () => {
       { url: 'https://example.com/big', format: 'html', maxBytes: 500 },
       { fetch: async () => mockResp(big, 'text/plain') },
     )
-    expect(out.truncated).toBe(true)
-    expect(out.content).toContain('[truncated]')
+    expect(out).toContain('[truncated]')
+    expect(out.length).toBeLessThan(2000)
   })
 
   test('caches by url+format+maxBytes', async () => {
@@ -76,7 +75,6 @@ describe('webFetch', () => {
     await webFetch({ url: 'https://cache.example/', format: 'markdown' }, { fetch: f })
     await webFetch({ url: 'https://cache.example/', format: 'markdown' }, { fetch: f })
     expect(calls).toBe(1)
-    // Different format → different key → another call
     await webFetch({ url: 'https://cache.example/', format: 'text' }, { fetch: f })
     expect(calls).toBe(2)
   })
@@ -97,5 +95,23 @@ describe('webFetch', () => {
         },
       ),
     ).rejects.toThrow(/Binary content/)
+  })
+
+  test('reports cross-origin redirect as plain text', async () => {
+    clearFetchCache()
+    const out = await webFetch(
+      { url: 'https://a.example/' },
+      {
+        fetch: async () => ({
+          finalUrl: 'https://a.example/',
+          status: 301,
+          contentType: '',
+          body: new ArrayBuffer(0),
+          redirect: { from: 'https://a.example/', to: 'https://b.example/x', status: 301 },
+        }),
+      },
+    )
+    expect(out).toContain('[Redirected')
+    expect(out).toContain('https://b.example/x')
   })
 })
