@@ -1,5 +1,7 @@
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
+import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
+import type { RequestInit as UndiciRequestInit } from 'undici'
 
 export const DEFAULT_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 webtool/0.1.0'
@@ -9,6 +11,38 @@ export const MAX_HTTP_CONTENT_LENGTH = 10 * 1024 * 1024
 export const MAX_REDIRECTS = 10
 
 const ALLOW_PRIVATE = process.env.WEBTOOL_ALLOW_PRIVATE === '1'
+
+let nodeProxyDispatcher: EnvHttpProxyAgent | null = null
+
+function getNodeProxyDispatcher(): EnvHttpProxyAgent | null {
+  if (process.versions.bun) return null
+  const hasProxy =
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy
+
+  if (!hasProxy) return null
+  nodeProxyDispatcher ??= new EnvHttpProxyAgent()
+  return nodeProxyDispatcher
+}
+
+async function fetchWithProxyFallback(url: URL, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (e) {
+    const dispatcher = getNodeProxyDispatcher()
+    if (!dispatcher || init.signal?.aborted) throw e
+    const proxyInit: UndiciRequestInit = {
+      method: init.method,
+      headers: init.headers as Record<string, string>,
+      redirect: init.redirect,
+      signal: init.signal,
+      dispatcher,
+    }
+    return undiciFetch(url, proxyInit) as unknown as Promise<Response>
+  }
+}
 
 export class WebtoolError extends Error {
   constructor(public code: string, message: string) {
@@ -156,7 +190,7 @@ export async function fetchWithGuards(
   let hops = 0
   try {
     while (true) {
-      const res = await fetch(currentUrl, {
+      const res = await fetchWithProxyFallback(currentUrl, {
         method: 'GET',
         headers,
         redirect: 'manual',
