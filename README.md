@@ -1,6 +1,7 @@
 # agent-webtool
 
 [![npm version](https://img.shields.io/npm/v/agent-webtool.svg)](https://www.npmjs.com/package/agent-webtool)
+[![GitHub](https://img.shields.io/badge/GitHub-potato47%2Fagent--webtool-181717?logo=github)](https://github.com/potato47/agent-webtool)
 [![license](https://img.shields.io/npm/l/agent-webtool.svg)](./LICENSE)
 
 Web fetch and multi-engine search tools for AI agents. **No API keys required.**
@@ -303,12 +304,12 @@ Both functions return a plain string. A dedicated library entry (`exports`-mappe
 ## Development
 
 ```bash
-git clone <repo>
+git clone https://github.com/potato47/agent-webtool.git
 cd agent-webtool
 bun install
-bun test            # 49 fixture-based tests; no network
+bun test            # 51 fixture-based tests; no network
 bun run cli -- search "test" --limit 3
-bun run build       # produces dist/cli.mjs (single ESM bundle, ~3.6 MB)
+bun run build       # produces dist/cli.mjs (single ESM bundle)
 ```
 
 The build is a single self-contained ESM file that runs under plain Node ≥ 18. Bun is only required at dev time.
@@ -320,6 +321,17 @@ bun scratch/probe-engines.ts          # captures fresh HTML to scratch/dump/
 bun scratch/peek.ts                   # tests parsers against fresh capture
 # then update selectors in src/core/engines/*.ts
 ```
+
+---
+
+## Contributing
+
+Issues and pull requests welcome at <https://github.com/potato47/agent-webtool>.
+
+When opening a bug report, please include:
+- the command you ran (or MCP `tools/call` request),
+- the full output (use `--raw` for searches so the markdown is verbatim),
+- your Node / Bun version (`node -v`, `bun -v`) and OS.
 
 ---
 

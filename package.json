@@ -1,6 +1,6 @@
 {
   "name": "agent-webtool",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Web fetch and multi-engine search tools for AI agents (CLI + MCP server). No API keys required.",
   "keywords": [
     "agent",
@@ -18,6 +18,14 @@
     "tools"
   ],
   "license": "MIT",
+  "homepage": "https://github.com/potato47/agent-webtool#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/potato47/agent-webtool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/potato47/agent-webtool/issues"
+  },
   "type": "module",
   "bin": {
     "webtool": "./dist/cli.mjs",
