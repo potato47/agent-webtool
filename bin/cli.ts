@@ -5,9 +5,10 @@ import { markedTerminal } from 'marked-terminal'
 import { webFetch, webSearch, WebtoolError, ENGINE_NAMES } from '../src/index.ts'
 import { fetchInputSchema, searchInputSchema } from '../src/schemas.ts'
 import { runMcpServer } from './mcp.ts'
+import { getPackageVersion } from '../src/version.ts'
 import type { EngineName, FetchFormat, TimeRange } from '../src/core/types.ts'
 
-const VERSION = '0.2.0'
+const VERSION = getPackageVersion()
 
 function die(code: number, msg: string): never {
   process.stderr.write(msg.endsWith('\n') ? msg : msg + '\n')
