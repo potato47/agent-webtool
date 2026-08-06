@@ -30,7 +30,7 @@ export const duckduckgo: SearchAdapter = {
     // even when duckduckgo.com/html/ throws a JS challenge.
     const u = new URL("https://html.duckduckgo.com/html/");
     u.searchParams.set("q", query);
-    if (opts.timeRange) u.searchParams.set("df", DF_MAP[opts.timeRange]);
+    if (opts?.timeRange) u.searchParams.set("df", DF_MAP[opts.timeRange]);
     return u.toString();
   },
   parse(html) {
@@ -41,6 +41,8 @@ export const duckduckgo: SearchAdapter = {
       const a = $el.find(".result__a").first();
       const title = a.text().trim();
       const url = unwrap(a.attr("href") ?? "");
+      // Skip DuckDuckGo-internal ad/redirect entries.
+      if (/duckduckgo\.com\/y\.js/.test(url)) return;
       const snippet = $el.find(".result__snippet").first().text().trim();
       if (!title || !url) return;
       hits.push({ title, url, snippet, rank: hits.length + 1 });

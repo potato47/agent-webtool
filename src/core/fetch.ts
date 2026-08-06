@@ -1,12 +1,44 @@
 import * as cheerio from "cheerio";
+import type { Cheerio, CheerioAPI } from "cheerio";
+import type { AnyNode } from "domhandler";
 import TurndownService from "turndown";
 import { LRUCache } from "./cache.ts";
+import { decodeBody, decodeSogouLink } from "./decode.ts";
 import { fetchWithGuards, WebtoolError } from "./http.ts";
+import { registerFetchedPage } from "./search.ts";
 import type { FetchFormat, FetchInput } from "./types.ts";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 256;
 const CACHE_MAX_BYTES = 50 * 1024 * 1024;
+
+const STRIP_SELECTORS = [
+  "nav",
+  "header",
+  "footer",
+  "script",
+  "style",
+  "aside",
+  "noscript",
+  "form",
+  ".nav",
+  ".header",
+  ".footer",
+  ".sidebar",
+];
+
+const CONTENT_CANDIDATES = [
+  "article",
+  "main",
+  '[role="main"]',
+  "#main-content",
+  ".post-content",
+  ".entry-content",
+  ".markdown-body",
+  "#bodyContent",
+  "#js_content", // WeChat article body
+  ".rich_media_content",
+];
 
 const cache = new LRUCache<string>({
   maxEntries: CACHE_MAX_ENTRIES,
@@ -46,20 +78,40 @@ function truncate(s: string, maxBytes: number): string {
   return new TextDecoder("utf-8").decode(cut) + "\n\n[truncated]";
 }
 
-function htmlToText(html: string): string {
+/** Pick the main-content node: first candidate with substantial text, else body. */
+function extractHost($: CheerioAPI): Cheerio<AnyNode> {
+  for (const sel of CONTENT_CANDIDATES) {
+    const el = $(sel).first();
+    if (el.length && el.text().trim().length > 200) return el;
+  }
+  return $("body").first();
+}
+
+function prepareDocument(html: string): { $: CheerioAPI; host: Cheerio<AnyNode> } {
   const $ = cheerio.load(html);
-  $("script, style, noscript").remove();
-  const text = $("body").text() || $.root().text();
+  const host = extractHost($);
+  for (const sel of STRIP_SELECTORS) {
+    host.find(sel).remove();
+  }
+  return { $, host };
+}
+
+function htmlToText($: CheerioAPI, host: Cheerio<AnyNode>): string {
+  const text = host.text() || $.root().text();
   return text
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function htmlToMarkdown(html: string): string {
-  const $ = cheerio.load(html);
-  $("script, style, noscript, iframe").remove();
-  return getTurndown().turndown($.html());
+function htmlToMarkdown(host: Cheerio<AnyNode>): string {
+  return getTurndown().turndown(host.html() ?? "");
+}
+
+function extractTitle($: CheerioAPI): string {
+  return (
+    $("title").first().text().trim() || $("#activity-name, .rich_media_title").first().text().trim()
+  );
 }
 
 export interface FetchDeps {
@@ -76,7 +128,8 @@ export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<s
   const cached = cache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  const result = await (deps.fetch ?? fetchWithGuards)(raw.url, {
+  const fetcher = deps.fetch ?? fetchWithGuards;
+  const result = await fetcher(raw.url, {
     timeoutMs,
     redirect: "same-origin",
   });
@@ -97,15 +150,27 @@ export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<s
     );
   }
 
-  const decoded = new TextDecoder("utf-8", { fatal: false }).decode(result.body);
-  let out: string;
-  if (format === "html") {
-    out = decoded;
-  } else if (format === "text") {
-    out = result.contentType.includes("text/html") ? htmlToText(decoded) : decoded;
-  } else {
-    out = result.contentType.includes("text/html") ? htmlToMarkdown(decoded) : decoded;
+  const isHtml = result.contentType.includes("text/html");
+  let html = decodeBody(result);
+  // Sogou /link is a JS-redirect stub, not an HTTP 3xx — resolve it to the real article.
+  const real = decodeSogouLink(raw.url, html);
+  if (real && real !== raw.url) {
+    const resolved = await fetcher(real, { timeoutMs, redirect: "same-origin" });
+    if (!resolved.redirect && !looksBinary(resolved.contentType)) {
+      html = decodeBody(resolved);
+    }
   }
+
+  let out: string;
+  if (format === "html" || !isHtml) {
+    out = html;
+  } else {
+    const { $, host } = prepareDocument(html);
+    out = format === "text" ? htmlToText($, host) : htmlToMarkdown(host);
+  }
+
+  const title = isHtml ? extractTitle(cheerio.load(html)) : "";
+  registerFetchedPage(raw.url, title);
 
   out = truncate(out, maxBytes);
   cache.set(cacheKey, out, new TextEncoder().encode(out).byteLength);

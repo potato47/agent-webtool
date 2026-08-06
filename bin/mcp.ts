@@ -14,7 +14,7 @@ export async function runMcpServer(opts: McpOptions): Promise<void> {
       capabilities: { tools: {} },
       instructions:
         "Exposes web_fetch (fetch a URL → markdown/text/html) and web_search " +
-        "(parallel multi-engine search returned as a markdown-formatted ranked list). " +
+        "(parallel multi-engine search returned as a citation list with stable [n] ids). " +
         "No API keys required.",
     },
   );
@@ -49,9 +49,9 @@ export async function runMcpServer(opts: McpOptions): Promise<void> {
       {
         title: "Search the web across multiple engines",
         description:
-          "Run a search query concurrently across DuckDuckGo, Bing, Brave, and Yahoo. " +
-          "Results are deduplicated by normalized URL, ranked via Reciprocal Rank Fusion, " +
-          "and returned as a markdown-formatted numbered list ([title](url) + snippet). " +
+          "Run a search query concurrently across Bing (RSS), Baidu, WeChat (Sogou), Toutiao, " +
+          "DuckDuckGo, and Yahoo. Results are deduplicated by normalized URL, ranked via " +
+          "Reciprocal Rank Fusion, and returned as citation lines ([n] title + URL + snippet). " +
           "Pass `engines` to restrict to a subset.",
         inputSchema: searchInputSchema.shape,
       },

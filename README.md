@@ -11,7 +11,7 @@ Exposes two tools through a single binary, usable as a **CLI** or as an **MCP se
 | Tool         | Purpose                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `web_fetch`  | Fetch a URL and return its content as **markdown**, plain text, or raw HTML.                                                       |
-| `web_search` | Query **DuckDuckGo + Bing + Brave + Yahoo** in parallel, deduplicate by URL, rank results via Reciprocal Rank Fusion (RRF, k=60).  |
+| `web_search` | Query **Bing (RSS) + Baidu + WeChat (Sogou) + Toutiao + DuckDuckGo + Yahoo** in parallel, deduplicate by URL, rank via Reciprocal Rank Fusion (RRF, k=60). |
 
 Designed for agents that need first-class web access without depending on Google / Bing / SerpAPI accounts. Runs on **Node.js ≥ 18** or **Bun ≥ 1.0** — pick whichever you have.
 
@@ -77,7 +77,7 @@ Commands:
 Run `webtool <command> --help` for per-command options.
 ```
 
-Both commands print to stdout. When stdout is an **interactive terminal**, markdown is rendered with colors, headings, and clickable links (via `marked-terminal`). When stdout is a **pipe / file / non-TTY**, the same content is printed as **raw markdown** — perfect for `> page.md` or piping into another command. Use `--raw` to force raw output even in a terminal. `NO_COLOR=1` also disables rendering.
+Both commands print to stdout. When stdout is an **interactive terminal**, output is rendered with colors and headings (via `marked-terminal`). When stdout is a **pipe / file / non-TTY**, the same content is printed as **raw text** — perfect for `> page.md` or piping into another command. Use `--raw` to force raw output even in a terminal. `NO_COLOR=1` also disables rendering.
 
 ### `webtool fetch`
 
@@ -103,11 +103,11 @@ Options:
 ### `webtool search`
 
 ```bash
-# All 4 engines in parallel
+# All 6 engines in parallel
 webtool search "bun javascript runtime" --limit 5
 
 # Restrict to a subset
-webtool search "typescript handbook" --engines brave,duckduckgo --limit 10
+webtool search "typescript handbook" --engines bing,baidu --limit 10
 
 # Past-week news only
 webtool search "ai breakthroughs" --time week
@@ -120,7 +120,7 @@ Options:
 
 | Flag                  | Default                            | Description                                                |
 | --------------------- | ---------------------------------- | ---------------------------------------------------------- |
-| `--engines <list>`    | `duckduckgo,bing,brave,yahoo`      | Comma-separated subset                                     |
+| `--engines <list>`    | `bing,baidu,wechat,toutiao,duckduckgo,yahoo` | Comma-separated subset                           |
 | `--limit <n>`         | `10`                               | Max aggregated results (1–30)                              |
 | `--time <range>`      | —                                  | `day` \| `week` \| `month` \| `year` (engines may ignore)  |
 | `--site <domain>`     | —                                  | Restrict to a domain (injects `site:` operator)            |
@@ -133,7 +133,7 @@ Options:
 | `0`  | Success                                                |
 | `1`  | Generic error                                          |
 | `2`  | Invalid input (URL, engine name, schema validation)    |
-| `3`  | Network failure (or **all** engines failed in search)  |
+| `3`  | Network failure                                        |
 
 ---
 
@@ -249,29 +249,36 @@ If the content exceeds `--max-bytes`, the output ends with a `[truncated]` marke
 
 ### `web_search`
 
-Returns a numbered markdown list, one entry per line pair (title link + snippet):
+Returns a citation list, one entry per result (number, title, URL, snippet). Citation numbers are stable across calls within the same process — the same URL keeps its `[n]`:
 
-```markdown
-1. [Bun — A fast all-in-one JavaScript runtime](https://bun.sh/)
-   Bundle, install, and run JavaScript & TypeScript — all in Bun.
+```text
+[1] Bun — A fast all-in-one JavaScript runtime
+https://bun.sh/
+Bundle, install, and run JavaScript & TypeScript — all in Bun.
 
-2. [GitHub - oven-sh/bun: Incredibly fast JavaScript runtime, bundler, test runner, and package manager](https://github.com/oven-sh/bun)
-   Incredibly fast JavaScript runtime, bundler, test runner, and package manager – all in one.
+[2] GitHub - oven-sh/bun: Incredibly fast JavaScript runtime, bundler, test runner, and package manager
+https://github.com/oven-sh/bun
+Incredibly fast JavaScript runtime, bundler, test runner, and package manager – all in one.
 
-3. [Bun (software) - Wikipedia](https://en.wikipedia.org/wiki/Bun_(software))
-   Bun is a JavaScript runtime, package manager and test runner designed as a drop-in replacement for Node.js.
+[3] Bun (software) - Wikipedia (2026年8月6日)
+https://en.wikipedia.org/wiki/Bun_(software)
+Bun is a JavaScript runtime, package manager and test runner designed as a drop-in replacement for Node.js.
 ```
 
-If some engines fail (timeout / challenge page / parse error), or return a page with zero parsed hits, footer lines appear at the end:
+Per-engine metadata (WeChat account name, Toutiao source, Bing publish date) is appended in parentheses. If some engines fail (timeout / challenge page / parse error) or return a page with zero parsed hits, footer lines appear at the end:
 
+```text
+> Note: 1 engine(s) failed — bing.
+> Note: 1 engine(s) returned no results — toutiao.
 ```
-> Note: 1 engine(s) failed — duckduckgo.
-> Note: 1 engine(s) returned no results — brave.
+
+If **all** engines fail or return nothing, the search returns a per-engine status line instead of erroring:
+
+```text
+No results. Engine status: bing: timeout; baidu: 3 results; wechat: 0 results; ...
 ```
 
-If **all** engines fail, the CLI exits with code `3` and prints the error to stderr.
-
-Aggregation: results from each engine are pulled in parallel, URLs are **normalized** (HTTPS-upgraded, `www.` stripped, tracking params removed, trailing slash trimmed, query keys sorted), then merged across engines. Final ranking uses **Reciprocal Rank Fusion** (`score = Σ 1 / (60 + rank)`).
+Aggregation: results from each engine are pulled in parallel (3s per-engine cap), URLs are **normalized** (HTTPS-upgraded, `www.` stripped, tracking params removed, trailing slash trimmed, query keys sorted), then merged across engines. Final ranking uses **Reciprocal Rank Fusion** (`score = Σ 1 / (60 + rank)`).
 
 ---
 
@@ -282,7 +289,10 @@ Aggregation: results from each engine are pulled in parallel, URLs are **normali
 - **SSRF guard.** Private, loopback, and link-local addresses (RFC 1918, `127/8`, `169.254/16`, IPv6 ULA/link-local, `::ffff:` mapped privates) are rejected. Set `WEBTOOL_ALLOW_PRIVATE=1` to allow `localhost` for development.
 - **Hard 10 MB cap** on fetched response body.
 - **15-minute LRU cache** on `web_fetch` (keyed by URL + format + maxBytes; 256 entries / 50 MB cap).
-- **Per-engine 15s timeout** in `web_search`. Engines that fail or return zero parsed hits are reported in the footer; others still return results (partial success). If every engine fails, the call errors.
+- **Charset-aware decoding.** Responses are decoded honoring the `Content-Type` charset (then a `<meta charset>` sniff), so GBK/GB2312 pages from Chinese sites don't mojibake.
+- **Sogou `/link` resolution.** WeChat search results are Sogou JS-redirect stubs; `web_fetch` resolves them to the real article automatically.
+- **Article extraction.** `web_fetch` prefers a main-content node (`article`, `main`, `#js_content`, `.rich_media_content`, …) and strips nav/header/footer noise before converting.
+- **Per-engine 3s timeout** in `web_search`. Engines that fail or return zero parsed hits are reported in the footer; others still return results (partial success). If every engine fails, a per-engine status line is returned instead of erroring.
 - **No telemetry.** No third-party API keys. All requests go directly to the target host.
 
 ---
@@ -295,10 +305,10 @@ This package primarily ships a CLI / MCP binary. If you want to call the core fu
 import { webFetch, webSearch } from 'agent-webtool/src/index.ts' // requires bun or a TS-aware loader
 
 const markdown = await webFetch({ url: 'https://example.com' })  // → string
-const list     = await webSearch({ query: 'bun runtime' })       // → string (markdown list)
+const citations = await webSearch({ query: 'bun runtime' })      // → string (citation list)
 ```
 
-Both functions return a plain string. A dedicated library entry (`exports`-mapped, with `.d.ts`) may be added in a future release.
+Both functions return a plain string. `webFetch` also populates a per-process citation index (`collectedSources()`), so a URL fetched after appearing in search results keeps its `[n]` id.
 
 ---
 
@@ -308,7 +318,7 @@ Both functions return a plain string. A dedicated library entry (`exports`-mappe
 git clone https://github.com/potato47/agent-webtool.git
 cd agent-webtool
 bun install
-bun test            # 51 fixture-based tests; no network
+bun test            # 67 fixture-based tests; no network
 bun run cli -- search "test" --limit 3
 bun run build       # produces dist/cli.mjs (single ESM bundle)
 ```

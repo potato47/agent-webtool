@@ -45,7 +45,6 @@ function out(text: string, opts: { raw?: boolean; renderable?: boolean } = {}): 
 function classifyError(e: unknown): number {
   if (e instanceof WebtoolError) {
     if (e.code === "invalid_url" || e.code === "private_address") return 2;
-    if (e.code === "all_engines_failed") return 3;
     return 3;
   }
   return 1;
@@ -88,7 +87,7 @@ program
 
 program
   .command("search <query>")
-  .description("Run a multi-engine web search and print results as a markdown list")
+  .description("Run a multi-engine web search and print results as citation lines")
   .option("-e, --engines <list>", `comma-separated subset of [${ENGINE_NAMES.join(",")}]`)
   .option("-l, --limit <n>", "max final results", (v) => Number.parseInt(v, 10))
   .option("--time <range>", "time filter: day | week | month | year")

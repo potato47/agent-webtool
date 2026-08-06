@@ -1,12 +1,16 @@
 import type { EngineName, SearchAdapter } from "../types.ts";
+import { baidu } from "./baidu.ts";
 import { bing } from "./bing.ts";
-import { brave } from "./brave.ts";
 import { duckduckgo } from "./duckduckgo.ts";
+import { toutiao } from "./toutiao.ts";
+import { wechat } from "./wechat.ts";
 import { yahoo } from "./yahoo.ts";
 
 export const adapters: Record<EngineName, SearchAdapter> = {
-  duckduckgo,
   bing,
-  brave,
+  baidu,
+  wechat,
+  toutiao,
+  duckduckgo,
   yahoo,
 };
