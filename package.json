@@ -5,46 +5,51 @@
   "keywords": [
     "agent",
     "ai",
-    "mcp",
-    "web-search",
-    "web-fetch",
-    "duckduckgo",
     "bing",
     "brave",
-    "yahoo",
-    "scraping",
     "claude",
+    "duckduckgo",
     "llm",
-    "tools"
+    "mcp",
+    "scraping",
+    "tools",
+    "web-fetch",
+    "web-search",
+    "yahoo"
   ],
-  "license": "MIT",
   "homepage": "https://github.com/potato47/agent-webtool#readme",
+  "bugs": {
+    "url": "https://github.com/potato47/agent-webtool/issues"
+  },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/potato47/agent-webtool.git"
   },
-  "bugs": {
-    "url": "https://github.com/potato47/agent-webtool/issues"
-  },
-  "type": "module",
   "bin": {
-    "webtool": "./dist/cli.mjs",
-    "agent-webtool": "./dist/cli.mjs"
+    "agent-webtool": "./dist/cli.mjs",
+    "webtool": "./dist/cli.mjs"
   },
   "files": [
     "dist",
     "README.md",
     "LICENSE"
   ],
-  "engines": {
-    "node": ">=18"
-  },
+  "type": "module",
   "scripts": {
     "build": "bun build bin/cli.ts --target=node --format=esm --outfile=dist/cli.mjs && chmod +x dist/cli.mjs",
     "cli": "bun bin/cli.ts",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
     "mcp": "bun bin/cli.ts mcp",
     "test": "bun test test/",
     "prepublishOnly": "bun run build && bun test test/"
+  },
+  "dependencies": {
+    "marked": "^18.0.4",
+    "marked-terminal": "^7.3.0",
+    "undici": "^7.25.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -53,13 +58,13 @@
     "@types/turndown": "^5.0.6",
     "cheerio": "^1.2.0",
     "commander": "^14.0.3",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.77.0",
     "turndown": "^7.2.4",
     "typescript": "^5",
     "zod": "^4.4.3"
   },
-  "dependencies": {
-    "marked": "^18.0.4",
-    "marked-terminal": "^7.3.0",
-    "undici": "^7.25.0"
+  "engines": {
+    "node": ">=18"
   }
 }
