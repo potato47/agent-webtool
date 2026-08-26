@@ -4,7 +4,7 @@ import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import type { RequestInit as UndiciRequestInit } from "undici";
 
 export const DEFAULT_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 webtool/0.1.0";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 webtool/0.5.0";
 
 export const MAX_URL_LENGTH = 2000;
 export const MAX_HTTP_CONTENT_LENGTH = 10 * 1024 * 1024;

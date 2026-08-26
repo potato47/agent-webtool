@@ -4,16 +4,17 @@
 [![GitHub](https://img.shields.io/badge/GitHub-potato47%2Fagent--webtool-181717?logo=github)](https://github.com/potato47/agent-webtool)
 [![license](https://img.shields.io/npm/l/agent-webtool.svg)](./LICENSE)
 
-Web fetch and multi-engine search tools for AI agents. **No API keys required.**
+Web fetch and multi-engine search tools for AI agents. Use it as a JavaScript/TypeScript
+**SDK**, a **CLI**, or an **MCP server**. **No API keys required.**
 
-Exposes two tools through a single binary, usable as a **CLI** or as an **MCP server**:
+Exposes two operations through all three integration modes:
 
 | Tool         | Purpose                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `web_fetch`  | Fetch a URL and return its content as **markdown**, plain text, or raw HTML.                                                       |
 | `web_search` | Query **Bing (RSS) + Baidu + WeChat (Sogou) + Toutiao + DuckDuckGo + Yahoo** in parallel, deduplicate by URL, rank via Reciprocal Rank Fusion (RRF, k=60). |
 
-Designed for agents that need first-class web access without depending on Google / Bing / SerpAPI accounts. Runs on **Node.js ≥ 18** or **Bun ≥ 1.0** — pick whichever you have.
+Designed for agents that need first-class web access without depending on Google / Bing / SerpAPI accounts. Runs on **Node.js ≥ 20.18.1** or **Bun ≥ 1.0** — pick whichever you have.
 
 ---
 
@@ -51,16 +52,19 @@ Both binary names (`webtool` and `agent-webtool`) point to the same CLI.
 
 ```bash
 # npm
-npm install --save-dev agent-webtool
+npm install agent-webtool
 
 # bun
-bun add -d agent-webtool
+bun add agent-webtool
+
+# For CLI-only package.json scripts, you may install it as a dev dependency instead:
+# npm install --save-dev agent-webtool
 
 # use in package.json scripts:
 #   "search": "agent-webtool search ..."
 ```
 
-> **Requirements:** Node.js ≥ 18 (native `fetch`) or Bun ≥ 1.0.
+> **Requirements:** Node.js ≥ 20.18.1 or Bun ≥ 1.0.
 
 ---
 
@@ -297,18 +301,44 @@ Aggregation: results from each engine are pulled in parallel (3s per-engine cap)
 
 ---
 
-## Library use (optional)
+## Use as a JavaScript SDK
 
-This package primarily ships a CLI / MCP binary. If you want to call the core functions from JavaScript, install the source and import from `src/`:
+The package provides ESM, CommonJS, and TypeScript declaration entry points. It is a
+server-side SDK for Node.js or Bun; it is not intended for browser bundles because URL
+validation performs DNS and private-network checks.
+
+### ESM / TypeScript
 
 ```ts
-import { webFetch, webSearch } from 'agent-webtool/src/index.ts' // requires bun or a TS-aware loader
+import { collectedSources, webFetch, webSearch } from "agent-webtool";
 
-const markdown = await webFetch({ url: 'https://example.com' })  // → string
-const citations = await webSearch({ query: 'bun runtime' })      // → string (citation list)
+const markdown = await webFetch({
+  url: "https://example.com",
+  format: "markdown",
+});
+
+const citations = await webSearch({
+  query: "bun runtime",
+  engines: ["bing", "duckduckgo"],
+  limit: 5,
+});
+
+const sources = collectedSources();
 ```
 
-Both functions return a plain string. `webFetch` also populates a per-process citation index (`collectedSources()`), so a URL fetched after appearing in search results keeps its `[n]` id.
+### CommonJS
+
+```js
+const { webFetch, webSearch } = require("agent-webtool");
+
+const markdown = await webFetch({ url: "https://example.com" });
+const citations = await webSearch({ query: "bun runtime" });
+```
+
+Both functions return `Promise<string>`. `webFetch` also populates a per-process citation
+index (`collectedSources()`), so a URL fetched after appearing in search results keeps its
+`[n]` id. TypeScript types such as `FetchInput`, `SearchInput`, `FetchDeps`, `SearchDeps`,
+and `SearchResult` are exported from the package root.
 
 ---
 
@@ -320,10 +350,13 @@ cd agent-webtool
 bun install
 bun test            # 67 fixture-based tests; no network
 bun run cli -- search "test" --limit 3
-bun run build       # produces dist/cli.mjs (single ESM bundle)
+bun run build       # produces CLI, ESM/CJS SDK, and SDK type declarations
+bun run verify:sdk  # verifies ESM, CommonJS, and TypeScript consumers
 ```
 
-The build is a single self-contained ESM file that runs under plain Node ≥ 18. Bun is only required at dev time.
+The CLI build is a self-contained ESM file. The SDK build publishes standard ESM and
+CommonJS entry points backed by regular runtime dependencies. Bun is only required at
+development/build time.
 
 Refreshing engine selectors when a SERP changes:
 

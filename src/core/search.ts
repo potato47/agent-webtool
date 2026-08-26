@@ -55,7 +55,7 @@ let sourceCounter = 0;
 
 /** All web sources seen in this process, ordered by citation id. */
 export function collectedSources(): SearchResult[] {
-  return [...sources.values()].toSorted((a, b) => (a.id ?? 0) - (b.id ?? 0));
+  return [...sources.values()].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
 }
 
 /** Test helper: reset per-process citation state without reaching into module internals. */
@@ -106,10 +106,6 @@ function buildQuery(input: SearchInput): string {
   let q = input.query.trim();
   if (input.site) q = `${q} site:${input.site}`;
   return q;
-}
-
-export interface SearchDeps {
-  fetch?: typeof fetchWithGuards;
 }
 
 async function fetchEngine(
