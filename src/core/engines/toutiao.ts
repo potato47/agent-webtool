@@ -30,7 +30,13 @@ export const toutiao: SearchAdapter = {
       }
       const rawHref = $el.find("a[href]").first().attr("href") ?? "";
       const url = decodeToutiaoUrl(rawHref);
-      if (!title || !url.startsWith("http") || seen.has(url)) return;
+      if (
+        !title ||
+        !url.startsWith("http") ||
+        url.startsWith("https://so.toutiao.com/search") ||
+        seen.has(url)
+      )
+        return;
       seen.add(url);
       const snippet = cleanText($el.find(".l-paragraph, .mb-8 .line-clamp-2").first().text());
       const source = cleanText($el.find(".l-source").first().text());

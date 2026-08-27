@@ -1,11 +1,5 @@
 export { webFetch, clearFetchCache } from "./core/fetch.ts";
-export {
-  webSearch,
-  normalizeUrl,
-  collectedSources,
-  resetSearchSourcesForTest,
-  registerFetchedPage,
-} from "./core/search.ts";
+export { webSearch, normalizeUrl, collectedSources, clearCollectedSources } from "./core/search.ts";
 export { WebtoolError } from "./core/http.ts";
 export type {
   FetchInput,
@@ -14,6 +8,7 @@ export type {
   FetchFormat,
   TimeRange,
   SearchResult,
+  SearchResponse,
   EngineStatus,
 } from "./core/types.ts";
 export type { FetchDeps } from "./core/fetch.ts";

@@ -116,6 +116,7 @@ function extractTitle($: CheerioAPI): string {
 
 export interface FetchDeps {
   fetch?: typeof fetchWithGuards;
+  signal?: AbortSignal;
 }
 
 /** Fetch a URL and return its content as a plain string (markdown by default). */
@@ -132,6 +133,7 @@ export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<s
   const result = await fetcher(raw.url, {
     timeoutMs,
     redirect: "same-origin",
+    signal: deps.signal,
   });
 
   if (result.redirect) {
@@ -155,7 +157,11 @@ export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<s
   // Sogou /link is a JS-redirect stub, not an HTTP 3xx — resolve it to the real article.
   const real = decodeSogouLink(raw.url, html);
   if (real && real !== raw.url) {
-    const resolved = await fetcher(real, { timeoutMs, redirect: "same-origin" });
+    const resolved = await fetcher(real, {
+      timeoutMs,
+      redirect: "same-origin",
+      signal: deps.signal,
+    });
     if (!resolved.redirect && !looksBinary(resolved.contentType)) {
       html = decodeBody(resolved);
     }

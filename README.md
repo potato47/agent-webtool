@@ -12,7 +12,7 @@ Exposes two operations through all three integration modes:
 | Tool         | Purpose                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `web_fetch`  | Fetch a URL and return its content as **markdown**, plain text, or raw HTML.                                                       |
-| `web_search` | Query **Bing (RSS) + Baidu + WeChat (Sogou) + Toutiao + DuckDuckGo + Yahoo** in parallel, deduplicate by URL, rank via Reciprocal Rank Fusion (RRF, k=60). |
+| `web_search` | Query **Baidu + WeChat (Sogou) + Toutiao + DuckDuckGo** in parallel, validate relevance, deduplicate by URL, and rank via Reciprocal Rank Fusion (RRF, k=60). |
 
 Designed for agents that need first-class web access without depending on Google / Bing / SerpAPI accounts. Runs on **Node.js ≥ 20.18.1** or **Bun ≥ 1.0** — pick whichever you have.
 
@@ -107,11 +107,11 @@ Options:
 ### `webtool search`
 
 ```bash
-# All 6 engines in parallel
+# All four supported engines in parallel
 webtool search "bun javascript runtime" --limit 5
 
 # Restrict to a subset
-webtool search "typescript handbook" --engines bing,baidu --limit 10
+webtool search "typescript handbook" --engines baidu,duckduckgo --limit 10
 
 # Past-week news only
 webtool search "ai breakthroughs" --time week
@@ -124,8 +124,9 @@ Options:
 
 | Flag                  | Default                            | Description                                                |
 | --------------------- | ---------------------------------- | ---------------------------------------------------------- |
-| `--engines <list>`    | `bing,baidu,wechat,toutiao,duckduckgo,yahoo` | Comma-separated subset                           |
+| `--engines <list>`    | `baidu,wechat,toutiao,duckduckgo`            | Comma-separated subset                           |
 | `--limit <n>`         | `10`                               | Max aggregated results (1–30)                              |
+| `--timeout-ms <n>`    | `3000`                             | Per-engine request timeout                                 |
 | `--time <range>`      | —                                  | `day` \| `week` \| `month` \| `year` (engines may ignore)  |
 | `--site <domain>`     | —                                  | Restrict to a domain (injects `site:` operator)            |
 | `--raw`               | —                                  | Disable terminal markdown rendering (TTY only)             |
@@ -226,7 +227,7 @@ Spawn `npx -y agent-webtool mcp` and speak the MCP protocol over stdio. The serv
 
 ## Output format
 
-Both tools return **plain text** — no JSON wrapping, no metadata envelope. Pipe it straight into a file or another command.
+The CLI and MCP tools return **plain text** — no JSON wrapping, no metadata envelope. Pipe it straight into a file or another command. SDK callers receive the same text together with structured results and engine status from `webSearch()`.
 
 ### `web_fetch`
 
@@ -269,20 +270,20 @@ https://en.wikipedia.org/wiki/Bun_(software)
 Bun is a JavaScript runtime, package manager and test runner designed as a drop-in replacement for Node.js.
 ```
 
-Per-engine metadata (WeChat account name, Toutiao source, Bing publish date) is appended in parentheses. If some engines fail (timeout / challenge page / parse error) or return a page with zero parsed hits, footer lines appear at the end:
+Per-engine metadata (such as WeChat account name or Toutiao source) is appended in parentheses. If some engines fail (timeout / challenge page / parse error / unrelated fallback response) or return a page with zero parsed hits, footer lines appear at the end:
 
 ```text
-> Note: 1 engine(s) failed — bing.
+> Note: 1 engine(s) failed — baidu.
 > Note: 1 engine(s) returned no results — toutiao.
 ```
 
 If **all** engines fail or return nothing, the search returns a per-engine status line instead of erroring:
 
 ```text
-No results. Engine status: bing: timeout; baidu: 3 results; wechat: 0 results; ...
+No results. Engine status: baidu: timeout; wechat: 0 results; ...
 ```
 
-Aggregation: results from each engine are pulled in parallel (3s per-engine cap), URLs are **normalized** (HTTPS-upgraded, `www.` stripped, tracking params removed, trailing slash trimmed, query keys sorted), then merged across engines. Final ranking uses **Reciprocal Rank Fusion** (`score = Σ 1 / (60 + rank)`).
+Aggregation: results from each engine are pulled in parallel, then hits whose title and snippet contain none of the meaningful query terms are discarded before ranking. URLs are **normalized** (HTTPS-upgraded, redirect wrappers unwrapped where possible, tracking params removed, trailing slash trimmed, query keys sorted), then merged across engines. Final ranking uses **Reciprocal Rank Fusion** (`score = Σ 1 / (60 + rank)`).
 
 ---
 
@@ -296,7 +297,8 @@ Aggregation: results from each engine are pulled in parallel (3s per-engine cap)
 - **Charset-aware decoding.** Responses are decoded honoring the `Content-Type` charset (then a `<meta charset>` sniff), so GBK/GB2312 pages from Chinese sites don't mojibake.
 - **Sogou `/link` resolution.** WeChat search results are Sogou JS-redirect stubs; `web_fetch` resolves them to the real article automatically.
 - **Article extraction.** `web_fetch` prefers a main-content node (`article`, `main`, `#js_content`, `.rich_media_content`, …) and strips nav/header/footer noise before converting.
-- **Per-engine 3s timeout** in `web_search`. Engines that fail or return zero parsed hits are reported in the footer; others still return results (partial success). If every engine fails, a per-engine status line is returned instead of erroring.
+- **Per-engine 3s timeout** in `web_search`, configurable through `timeoutMs` / `--timeout-ms`. Engines that fail, return unrelated fallback data, or return zero parsed hits are reported; others still return results (partial success).
+- **Supported engines.** Baidu, WeChat, Toutiao, and DuckDuckGo run by default and can be restricted through `engines`.
 - **No telemetry.** No third-party API keys. All requests go directly to the target host.
 
 ---
@@ -307,24 +309,42 @@ The package provides ESM, CommonJS, and TypeScript declaration entry points. It 
 server-side SDK for Node.js or Bun; it is not intended for browser bundles because URL
 validation performs DNS and private-network checks.
 
-### ESM / TypeScript
+### Structured search (recommended)
 
 ```ts
-import { collectedSources, webFetch, webSearch } from "agent-webtool";
+import {
+  clearCollectedSources,
+  webFetch,
+  webSearch,
+} from "agent-webtool";
 
 const markdown = await webFetch({
   url: "https://example.com",
   format: "markdown",
 });
 
-const citations = await webSearch({
-  query: "bun runtime",
-  engines: ["bing", "duckduckgo"],
-  limit: 5,
-});
+const controller = new AbortController();
+const search = await webSearch(
+  {
+    query: "bun runtime",
+    limit: 5,
+    timeoutMs: 5_000,
+  },
+  { signal: controller.signal },
+);
 
-const sources = collectedSources();
+console.log(search.text);       // formatted citation list
+console.log(search.results);    // this call's SearchResult[] with real RRF scores
+console.log(search.engines);    // status/count/error for every attempted engine
+
+// Clear the optional process-wide citation history in long-running services.
+clearCollectedSources();
 ```
+
+`webSearch()` is concurrency-safe: `results` contains only that invocation's results.
+`SearchResult.snippet` is the search summary and `meta` is always an object. Cancellation
+rejects the call and propagates the signal to the guarded HTTP layer without bypassing SSRF
+protection.
 
 ### CommonJS
 
@@ -332,13 +352,13 @@ const sources = collectedSources();
 const { webFetch, webSearch } = require("agent-webtool");
 
 const markdown = await webFetch({ url: "https://example.com" });
-const citations = await webSearch({ query: "bun runtime" });
+const search = await webSearch({ query: "bun runtime" });
 ```
 
-Both functions return `Promise<string>`. `webFetch` also populates a per-process citation
-index (`collectedSources()`), so a URL fetched after appearing in search results keeps its
-`[n]` id. TypeScript types such as `FetchInput`, `SearchInput`, `FetchDeps`, `SearchDeps`,
-and `SearchResult` are exported from the package root.
+`webFetch()` returns `Promise<string>` and `webSearch()` returns `Promise<SearchResponse>`.
+Search and fetch dependency options both accept an `AbortSignal`. TypeScript types such as
+`FetchInput`, `SearchInput`, `SearchDeps`, `SearchResult`, `SearchResponse`, and
+`EngineStatus` are exported from the package root.
 
 ---
 
@@ -348,7 +368,7 @@ and `SearchResult` are exported from the package root.
 git clone https://github.com/potato47/agent-webtool.git
 cd agent-webtool
 bun install
-bun test            # 67 fixture-based tests; no network
+bun test            # fixture-based tests; no network
 bun run cli -- search "test" --limit 3
 bun run build       # produces CLI, ESM/CJS SDK, and SDK type declarations
 bun run verify:sdk  # verifies ESM, CommonJS, and TypeScript consumers

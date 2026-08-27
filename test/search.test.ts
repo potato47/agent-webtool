@@ -1,26 +1,22 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
+  ENGINE_NAMES,
+  clearCollectedSources,
   collectedSources,
   normalizeUrl,
-  resetSearchSourcesForTest,
   webSearch,
 } from "../src/index.ts";
-import type { RawFetchResult } from "../src/core/http.ts";
+import type { FetchOptions, RawFetchResult } from "../src/core/http.ts";
+import type { SearchDeps, SearchInput } from "../src/index.ts";
 
 const fixture = (name: string) => Bun.file(`test/fixtures/${name}.html`).text();
 
 beforeEach(() => {
-  resetSearchSourcesForTest();
+  clearCollectedSources();
 });
 
 async function mockFetch(name: string): Promise<RawFetchResult> {
-  const text = await fixture(name);
-  return {
-    finalUrl: `https://${name}.example/search`,
-    status: 200,
-    contentType: "text/html",
-    body: new TextEncoder().encode(text).buffer as ArrayBuffer,
-  };
+  return rawResponse(await fixture(name));
 }
 
 function fetcherFor(
@@ -30,14 +26,36 @@ function fetcherFor(
     for (const [key, fn] of Object.entries(overrides)) {
       if (url.includes(key)) return fn(url);
     }
-    if (url.includes("bing.com")) return mockFetch("bing-rss");
     if (url.includes("baidu.com")) return mockFetch("baidu");
     if (url.includes("wx.sogou.com")) return mockFetch("wechat");
     if (url.includes("so.toutiao.com")) return mockFetch("toutiao");
     if (url.includes("duckduckgo.com")) return mockFetch("duckduckgo");
-    if (url.includes("yahoo.com")) return mockFetch("yahoo");
     throw new Error(`unexpected url: ${url}`);
   };
+}
+
+async function searchText(input: SearchInput, deps: SearchDeps): Promise<string> {
+  return (await webSearch(input, deps)).text;
+}
+
+function rawResponse(body: string): RawFetchResult {
+  return {
+    finalUrl: "https://example.com/search",
+    status: 200,
+    contentType: "text/html; charset=utf-8",
+    body: new TextEncoder().encode(body).buffer as ArrayBuffer,
+  };
+}
+
+function duckDuckGoPage(items: Array<{ title: string; url: string; snippet: string }>): string {
+  return items
+    .map(
+      (item) => `<div class="result">
+        <a class="result__a" href="${item.url}">${item.title}</a>
+        <div class="result__snippet">${item.snippet}</div>
+      </div>`,
+    )
+    .join("");
 }
 
 describe("normalizeUrl", () => {
@@ -57,114 +75,246 @@ describe("normalizeUrl", () => {
       "https://example.com/x?keep=1",
     );
   });
+  test("strips Toutiao tracking parameters", () => {
+    expect(
+      normalizeUrl(
+        "https://toutiao.com/group/123/?channel=x&source=search_tab&traffic_source=y&utm_source=z",
+      ),
+    ).toBe("https://toutiao.com/group/123");
+  });
 });
 
-describe("webSearch citation output", () => {
-  test("returns citation lines with url and content across all engines", async () => {
-    const out = await webSearch(
+describe("webSearch text output", () => {
+  test("returns citation lines across all supported engines", async () => {
+    const output = await searchText(
       { query: "bun javascript runtime", limit: 5 },
-      { fetch: fetcherFor() as any },
+      { fetch: fetcherFor() },
     );
-    expect(typeof out).toBe("string");
-    // citation lines: [n] title \n url \n content
-    expect(out).toMatch(/^\[1\] .+$/m);
-    expect(out).toMatch(/\[\d+\] .+\nhttps?:\/\/\S+\n/m);
-    expect(out.toLowerCase()).toContain("bun");
-    // no JSON noise
-    expect(out).not.toContain('"sources"');
-    expect(out).not.toContain('"score"');
+    expect(output).toMatch(/^\[1\] .+$/m);
+    expect(output).toMatch(/\[\d+\] .+\nhttps?:\/\/\S+\n/m);
+    expect(output.toLowerCase()).toContain("bun");
   });
 
   test("renders engine metadata inline", async () => {
-    const out = await webSearch(
-      { query: "bun", engines: ["wechat"] },
-      { fetch: fetcherFor() as any },
-    );
-    expect(out).toMatch(/^\[1\] .+\(.+\)$/m);
+    const output = await searchText({ query: "bun", engines: ["wechat"] }, { fetch: fetcherFor() });
+    expect(output).toMatch(/^\[1\] .+\(.+\)$/m);
   });
 
   test("partial failure appends a failed footer note", async () => {
-    const out = await webSearch(
-      { query: "bun javascript runtime" },
-      { fetch: fetcherFor({ "bing.com": () => Promise.reject(new Error("boom")) }) as any },
+    const output = await searchText(
+      { query: "bun javascript runtime", engines: ["baidu", "duckduckgo"] },
+      { fetch: fetcherFor({ "baidu.com": () => Promise.reject(new Error("boom")) }) },
     );
-    expect(out).toMatch(/^\[1\] /m);
-    expect(out).toContain("> Note: 1 engine(s) failed — bing.");
+    expect(output).toMatch(/^\[1\] /m);
+    expect(output).toContain("> Note: 1 engine(s) failed — baidu.");
   });
 
   test("empty parsed results append a no-results footer note", async () => {
-    const emptyPage = {
-      finalUrl: "https://toutiao.example/search",
-      status: 200,
-      contentType: "text/html",
-      body: new TextEncoder().encode("<html><body>No parseable SERP hits</body></html>")
-        .buffer as ArrayBuffer,
-    };
-    const out = await webSearch(
+    const emptyPage = rawResponse("<html><body>No parseable SERP hits</body></html>");
+    const output = await searchText(
       { query: "bun javascript runtime" },
-      { fetch: fetcherFor({ "so.toutiao.com": () => Promise.resolve(emptyPage) }) as any },
+      { fetch: fetcherFor({ "so.toutiao.com": () => Promise.resolve(emptyPage) }) },
     );
-    expect(out).toMatch(/^\[1\] /m);
-    expect(out).toContain("> Note: 1 engine(s) returned no results — toutiao.");
+    expect(output).toMatch(/^\[1\] /m);
+    expect(output).toContain("> Note: 1 engine(s) returned no results — toutiao.");
   });
 
   test("no results reports per-engine status", async () => {
-    const emptyPage = {
-      finalUrl: "https://x.example/search",
-      status: 200,
-      contentType: "text/html",
-      body: new TextEncoder().encode("<html><body>nothing</body></html>").buffer as ArrayBuffer,
-    };
-    const out = await webSearch(
-      { query: "zzz no such thing", engines: ["duckduckgo", "bing"] },
+    const emptyPage = rawResponse("<html><body>nothing</body></html>");
+    const output = await searchText(
+      { query: "zzz no such thing", engines: ["duckduckgo", "baidu"] },
       { fetch: () => Promise.resolve(emptyPage) },
     );
-    expect(out).toContain("No results. Engine status:");
-    expect(out).toContain("duckduckgo: 0 results");
-    expect(out).toContain("bing: 0 results");
+    expect(output).toContain("No results. Engine status:");
+    expect(output).toContain("duckduckgo: 0 results");
+    expect(output).toContain("baidu: 0 results");
   });
 
   test("engines subset is honored", async () => {
     const calls: string[] = [];
-    const fetcher = (url: string) => {
-      calls.push(url);
-      if (url.includes("duckduckgo.com")) return mockFetch("duckduckgo");
-      throw new Error(`unexpected: ${url}`);
-    };
-    const out = await webSearch(
+    const output = await searchText(
       { query: "bun runtime", engines: ["duckduckgo"] },
-      { fetch: fetcher },
+      {
+        fetch: (url: string) => {
+          calls.push(url);
+          return mockFetch("duckduckgo");
+        },
+      },
     );
-    expect(calls.length).toBe(1);
-    expect(out).toMatch(/^\[1\] /m);
+    expect(calls).toHaveLength(1);
+    expect(output).toMatch(/^\[1\] /m);
   });
 
-  test("limit caps final count", async () => {
-    const out = await webSearch({ query: "bun", limit: 3 }, { fetch: fetcherFor() as any });
-    const numbered = out.match(/^\[\d+\] /gm) ?? [];
-    expect(numbered.length).toBeLessThanOrEqual(3);
-    expect(numbered.length).toBeGreaterThan(0);
+  test("reports when all engines fail", async () => {
+    const output = await searchText(
+      { query: "x" },
+      { fetch: () => Promise.reject(new Error("blocked")) },
+    );
+    expect(output).toContain("No results. Engine status:");
+    expect(output).toContain("duckduckgo: blocked");
+    expect(output).toContain("baidu: blocked");
+  });
+});
+
+describe("webSearch structured response", () => {
+  test("uses every supported engine by default", async () => {
+    const calls: string[] = [];
+    const response = await webSearch(
+      { query: "bun", limit: 2 },
+      {
+        fetch: (url: string) => {
+          calls.push(new URL(url).hostname);
+          return fetcherFor()(url);
+        },
+      },
+    );
+
+    expect(calls.sort()).toEqual(
+      ["www.baidu.com", "wx.sogou.com", "so.toutiao.com", "html.duckduckgo.com"].sort(),
+    );
+    expect(response.engines.map((status) => status.engine)).toEqual([...ENGINE_NAMES]);
   });
 
-  test("throws when all engines fail", async () => {
-    const fetcher = () => Promise.reject(new Error("blocked"));
-    const out = await webSearch({ query: "x" }, { fetch: fetcher as any });
-    expect(out).toContain("No results. Engine status:");
-    expect(out).toContain("duckduckgo: blocked");
-    expect(out).toContain("bing: blocked");
+  test("returns this call's results with real RRF scores", async () => {
+    const response = await webSearch(
+      { query: "bun runtime", engines: ["duckduckgo"], limit: 3 },
+      { fetch: fetcherFor() },
+    );
+
+    expect(response.results).toHaveLength(3);
+    expect(response.text).toMatch(/^\[1\] /m);
+    for (const item of response.results) {
+      expect(item.score).toBeGreaterThan(0);
+      expect(item.snippet.length).toBeGreaterThan(0);
+      expect(item.meta).toEqual(expect.any(Object));
+    }
+    expect(collectedSources().every((item) => item.score > 0)).toBe(true);
+    expect(response.engines).toEqual([
+      {
+        engine: "duckduckgo",
+        status: "success",
+        ok: true,
+        count: 10,
+        rawCount: 10,
+      },
+    ]);
   });
 
-  test("citation ids stay stable across calls and populate collectedSources", async () => {
-    const fetchMock = fetcherFor() as any;
-    const first = await webSearch({ query: "bun", limit: 3 }, { fetch: fetchMock });
-    const second = await webSearch({ query: "bun", limit: 3 }, { fetch: fetchMock });
-    const ids = [...first.matchAll(/^\[(\d+)\]/gm)].map((m) => m[1]!);
-    const secondIds = [...second.matchAll(/^\[(\d+)\]/gm)].map((m) => m[1]!);
-    // Overlapping URLs reuse earlier ids instead of renumbering.
-    expect(secondIds[0]).toBe(ids[0]);
-    const sources = collectedSources();
-    expect(sources.length).toBeGreaterThan(0);
-    const allIds = sources.map((s) => s.id ?? 0);
-    expect(allIds).toEqual([...allIds].sort((a, b) => a - b));
+  test("drops unrelated hits before ranking", async () => {
+    const body = duckDuckGoPage([
+      {
+        title: "PostgreSQL administration",
+        url: "https://example.com/unrelated",
+        snippet: "Database tools and documentation",
+      },
+      {
+        title: "Rust async runtime guide",
+        url: "https://example.com/relevant",
+        snippet: "Build an async executor in Rust",
+      },
+    ]);
+    const response = await webSearch(
+      { query: "rust async runtime", engines: ["duckduckgo"] },
+      { fetch: async () => rawResponse(body) },
+    );
+
+    expect(response.results).toHaveLength(1);
+    expect(response.results[0]!.title).toBe("Rust async runtime guide");
+    expect(response.results[0]!.score).toBeCloseTo(1 / 61);
+    expect(response.engines[0]).toMatchObject({ status: "success", count: 1, rawCount: 2 });
+  });
+
+  test("marks an all-unrelated response as invalid", async () => {
+    const body = duckDuckGoPage([
+      {
+        title: "PostgreSQL administration",
+        url: "https://example.com/unrelated",
+        snippet: "Database tools and documentation",
+      },
+    ]);
+    const response = await webSearch(
+      { query: "rust async runtime", engines: ["duckduckgo"] },
+      { fetch: async () => rawResponse(body) },
+    );
+
+    expect(response.results).toEqual([]);
+    expect(response.engines[0]).toMatchObject({
+      status: "invalid_results",
+      ok: false,
+      count: 0,
+      rawCount: 1,
+    });
+    expect(response.text).toContain("none contained a query term");
+  });
+
+  test("keeps concurrent result sets isolated", async () => {
+    const fetch = async (url: string): Promise<RawFetchResult> => {
+      const query = new URL(url).searchParams.get("q") ?? "";
+      await Bun.sleep(query === "alpha runtime" ? 10 : 1);
+      const slug = query.replace(/\s+/g, "-");
+      return rawResponse(
+        duckDuckGoPage([
+          {
+            title: `${query} guide`,
+            url: `https://example.com/${slug}`,
+            snippet: `Documentation for ${query}`,
+          },
+        ]),
+      );
+    };
+
+    const [alpha, beta] = await Promise.all([
+      webSearch({ query: "alpha runtime", engines: ["duckduckgo"] }, { fetch }),
+      webSearch({ query: "beta runtime", engines: ["duckduckgo"] }, { fetch }),
+    ]);
+
+    expect(alpha.results.map((item) => item.title)).toEqual(["alpha runtime guide"]);
+    expect(beta.results.map((item) => item.title)).toEqual(["beta runtime guide"]);
+  });
+
+  test("passes timeout and cancellation to guarded fetch", async () => {
+    let seenTimeout: number | undefined;
+    const timeoutResponse = await webSearch(
+      { query: "bun", engines: ["duckduckgo"], timeoutMs: 1_234 },
+      {
+        fetch: async (_url: string, options?: FetchOptions) => {
+          seenTimeout = options?.timeoutMs;
+          return rawResponse(await fixture("duckduckgo"));
+        },
+      },
+    );
+    expect(timeoutResponse.results.length).toBeGreaterThan(0);
+    expect(seenTimeout).toBe(1_234);
+
+    const controller = new AbortController();
+    const pending = webSearch(
+      { query: "bun", engines: ["duckduckgo"] },
+      {
+        signal: controller.signal,
+        fetch: (_url: string, options?: FetchOptions) =>
+          new Promise<RawFetchResult>((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), {
+              once: true,
+            });
+          }),
+      },
+    );
+    controller.abort(new Error("cancelled by caller"));
+    await expect(pending).rejects.toThrow("cancelled by caller");
+  });
+
+  test("keeps citation ids stable and allows clearing the history", async () => {
+    const first = await webSearch(
+      { query: "bun", engines: ["duckduckgo"], limit: 1 },
+      { fetch: fetcherFor() },
+    );
+    const second = await webSearch(
+      { query: "bun", engines: ["duckduckgo"], limit: 1 },
+      { fetch: fetcherFor() },
+    );
+    expect(second.results[0]!.id).toBe(first.results[0]!.id);
+    expect(collectedSources()).toHaveLength(1);
+    clearCollectedSources();
+    expect(collectedSources()).toEqual([]);
   });
 });

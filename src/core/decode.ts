@@ -38,11 +38,19 @@ export function decodeSogouLink(currentUrl: string, html: string): string | null
   return /^https?:\/\//i.test(dest) ? dest : null;
 }
 
-/** Decode Toutiao's /search/jump?...&url=<url-encoded>&... redirect. */
+/** Decode Toutiao search redirect URLs to their underlying web page. */
 export function decodeToutiaoUrl(href: string): string {
   try {
-    const u = new URL(href, "https://so.toutiao.com").searchParams.get("url");
-    return u ? decodeURIComponent(u) : href;
+    let current = new URL(href, "https://so.toutiao.com").toString();
+    for (let i = 0; i < 3; i++) {
+      const params = new URL(current).searchParams;
+      const target = params.get("url") ?? params.get("h5_url");
+      if (!target) return current;
+      const decoded = decodeURIComponent(target);
+      if (decoded === current) return current;
+      current = decoded;
+    }
+    return current;
   } catch {
     return href;
   }

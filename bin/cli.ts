@@ -88,15 +88,26 @@ program
 program
   .command("search <query>")
   .description("Run a multi-engine web search and print results as citation lines")
-  .option("-e, --engines <list>", `comma-separated subset of [${ENGINE_NAMES.join(",")}]`)
+  .option(
+    "-e, --engines <list>",
+    `comma-separated subset of [${ENGINE_NAMES.join(",")}]; defaults to all`,
+  )
   .option("-l, --limit <n>", "max final results", (v) => Number.parseInt(v, 10))
+  .option("-t, --timeout-ms <n>", "per-engine timeout in ms", (v) => Number.parseInt(v, 10))
   .option("--time <range>", "time filter: day | week | month | year")
   .option("--site <domain>", "restrict to a site (injects site: operator)")
   .option("--raw", "print raw markdown without terminal rendering")
   .action(
     async (
       query: string,
-      opts: { engines?: string; limit?: number; time?: string; site?: string; raw?: boolean },
+      opts: {
+        engines?: string;
+        limit?: number;
+        timeoutMs?: number;
+        time?: string;
+        site?: string;
+        raw?: boolean;
+      },
     ) => {
       let engines: EngineName[] | undefined;
       if (opts.engines) {
@@ -114,12 +125,13 @@ program
         query,
         engines,
         limit: opts.limit,
+        timeoutMs: opts.timeoutMs,
         timeRange: opts.time as TimeRange | undefined,
         site: opts.site,
       });
       if (!parsed.success) die(2, parsed.error.toString());
       try {
-        out(await webSearch(parsed.data), { raw: opts.raw });
+        out((await webSearch(parsed.data)).text, { raw: opts.raw });
       } catch (e) {
         die(classifyError(e), `${(e as Error).message}`);
       }

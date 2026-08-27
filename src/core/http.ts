@@ -4,7 +4,7 @@ import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import type { RequestInit as UndiciRequestInit } from "undici";
 
 export const DEFAULT_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 webtool/0.5.0";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 webtool/0.6.0";
 
 export const MAX_URL_LENGTH = 2000;
 export const MAX_HTTP_CONTENT_LENGTH = 10 * 1024 * 1024;
@@ -184,7 +184,10 @@ export async function fetchWithGuards(
     timeoutMs,
   );
   const onAbort = () => ctrl.abort(opts.signal?.reason);
-  if (opts.signal) opts.signal.addEventListener("abort", onAbort, { once: true });
+  if (opts.signal) {
+    opts.signal.addEventListener("abort", onAbort, { once: true });
+    if (opts.signal.aborted) onAbort();
+  }
 
   let currentUrl = url;
   let hops = 0;

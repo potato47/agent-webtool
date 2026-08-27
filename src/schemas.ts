@@ -34,7 +34,7 @@ export const searchInputSchema = z
       .array(z.enum(ENGINE_NAMES))
       .min(1)
       .optional()
-      .describe("Subset of engines to query in parallel. Defaults to all."),
+      .describe(`Subset of engines to query in parallel. Defaults to all supported engines.`),
     limit: z
       .number()
       .int()
@@ -50,6 +50,13 @@ export const searchInputSchema = z
       .string()
       .optional()
       .describe("Restrict to a domain; injected as `site:` operator into query"),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(120_000)
+      .default(3_000)
+      .describe("Per-engine request timeout in milliseconds"),
   })
   .strict();
 

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { webFetch, webSearch } from "../src/index.ts";
 import { fetchInputSchema, searchInputSchema } from "../src/schemas.ts";
+import { getPackageVersion } from "../src/version.ts";
 
 export interface McpOptions {
   tools: Array<"fetch" | "search">;
@@ -9,7 +10,7 @@ export interface McpOptions {
 
 export async function runMcpServer(opts: McpOptions): Promise<void> {
   const server = new McpServer(
-    { name: "webtool", version: "0.1.0" },
+    { name: "webtool", version: getPackageVersion() },
     {
       capabilities: { tools: {} },
       instructions:
@@ -49,15 +50,14 @@ export async function runMcpServer(opts: McpOptions): Promise<void> {
       {
         title: "Search the web across multiple engines",
         description:
-          "Run a search query concurrently across Bing (RSS), Baidu, WeChat (Sogou), Toutiao, " +
-          "DuckDuckGo, and Yahoo. Results are deduplicated by normalized URL, ranked via " +
-          "Reciprocal Rank Fusion, and returned as citation lines ([n] title + URL + snippet). " +
-          "Pass `engines` to restrict to a subset.",
+          "Run a search query concurrently across Baidu, WeChat (Sogou), Toutiao, and DuckDuckGo. " +
+          "Results are relevance-checked, deduplicated by normalized URL, ranked via Reciprocal " +
+          "Rank Fusion, and returned as citation lines ([n] title + URL + snippet).",
         inputSchema: searchInputSchema.shape,
       },
       async (args) => {
         try {
-          const text = await webSearch(args);
+          const { text } = await webSearch(args);
           return { content: [{ type: "text", text }] };
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);

@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   clearFetchCache,
+  clearCollectedSources,
   collectedSources,
-  resetSearchSourcesForTest,
   webFetch,
 } from "../src/index.ts";
 import type { RawFetchResult } from "../src/core/http.ts";
 
 beforeEach(() => {
-  resetSearchSourcesForTest();
+  clearCollectedSources();
 });
 
 const HTML = `<!doctype html><html><head><title>T</title>

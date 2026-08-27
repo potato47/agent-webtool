@@ -1,5 +1,6 @@
 import {
   ENGINE_NAMES,
+  clearCollectedSources,
   collectedSources,
   webFetch,
   webSearch,
@@ -7,6 +8,7 @@ import {
   type FetchInput,
   type SearchDeps,
   type SearchInput,
+  type SearchResponse,
   type SearchResult,
 } from "agent-webtool";
 
@@ -18,13 +20,15 @@ const searchInput: SearchInput = {
   query: "agent sdk",
   engines: [ENGINE_NAMES[0]],
   limit: 3,
+  timeoutMs: 5_000,
 };
 const fetchDeps: FetchDeps = {};
-const searchDeps: SearchDeps = {};
+const searchDeps: SearchDeps = { signal: new AbortController().signal };
 
 const fetched: Promise<string> = webFetch(fetchInput, fetchDeps);
-const searched: Promise<string> = webSearch(searchInput, searchDeps);
+const searched: Promise<SearchResponse> = webSearch(searchInput, searchDeps);
 const sources: SearchResult[] = collectedSources();
+clearCollectedSources();
 
 void fetched;
 void searched;

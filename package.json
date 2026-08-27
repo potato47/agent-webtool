@@ -1,12 +1,11 @@
 {
   "name": "agent-webtool",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Web fetch and multi-engine search tools for AI agents (SDK + CLI + MCP server). No API keys required.",
   "keywords": [
     "agent",
     "ai",
     "baidu",
-    "bing",
     "claude",
     "duckduckgo",
     "llm",
@@ -16,8 +15,7 @@
     "toutiao",
     "web-fetch",
     "web-search",
-    "wechat",
-    "yahoo"
+    "wechat"
   ],
   "homepage": "https://github.com/potato47/agent-webtool#readme",
   "bugs": {
@@ -53,7 +51,8 @@
   "scripts": {
     "build": "bun run build:cli && bun run build:sdk",
     "build:cli": "bun build bin/cli.ts --target=node --format=esm --outfile=dist/cli.mjs && chmod +x dist/cli.mjs",
-    "build:sdk": "bun build src/index.ts --target=node --format=esm --packages=external --outfile=dist/index.mjs && bun build src/index.ts --target=node --format=cjs --packages=external --outfile=dist/index.cjs && tsc -p tsconfig.sdk.json",
+    "build:sdk": "bun run clean:types && bun build src/index.ts --target=node --format=esm --packages=external --outfile=dist/index.mjs && bun build src/index.ts --target=node --format=cjs --packages=external --outfile=dist/index.cjs && tsc -p tsconfig.sdk.json",
+    "clean:types": "node -e \"require('node:fs').rmSync('dist/types', { recursive: true, force: true })\"",
     "cli": "bun bin/cli.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
