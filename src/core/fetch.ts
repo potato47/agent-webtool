@@ -5,7 +5,7 @@ import TurndownService from "turndown";
 import { LRUCache } from "./cache.ts";
 import { decodeBody, decodeSogouLink } from "./decode.ts";
 import { fetchWithGuards, WebtoolError } from "./http.ts";
-import { registerFetchedPage } from "./search.ts";
+import { type SourceContext, registerFetchedPage } from "./search.ts";
 import type { FetchFormat, FetchInput } from "./types.ts";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
@@ -40,7 +40,7 @@ const CONTENT_CANDIDATES = [
   ".rich_media_content",
 ];
 
-const cache = new LRUCache<string>({
+const cache = new LRUCache<{ text: string; title?: string }>({
   maxEntries: CACHE_MAX_ENTRIES,
   maxBytes: CACHE_MAX_BYTES,
   ttlMs: CACHE_TTL_MS,
@@ -117,17 +117,23 @@ function extractTitle($: CheerioAPI): string {
 export interface FetchDeps {
   fetch?: typeof fetchWithGuards;
   signal?: AbortSignal;
+  /** Citation state for this session; omitted uses the process-wide default. */
+  sources?: SourceContext;
 }
 
 /** Fetch a URL and return its content as a plain string (markdown by default). */
 export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<string> {
+  deps.signal?.throwIfAborted();
   const format: FetchFormat = raw.format ?? "markdown";
   const maxBytes = raw.maxBytes ?? 100_000;
   const timeoutMs = raw.timeoutMs ?? 30_000;
   const cacheKey = `${raw.url}::${format}::${maxBytes}`;
 
   const cached = cache.get(cacheKey);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    if (cached.title !== undefined) registerFetchedPage(raw.url, cached.title, deps.sources);
+    return cached.text;
+  }
 
   const fetcher = deps.fetch ?? fetchWithGuards;
   const result = await fetcher(raw.url, {
@@ -140,7 +146,7 @@ export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<s
     const msg =
       `[Redirected to a different host: ${result.redirect.to}]\n` +
       `[Call web_fetch again with the redirect URL to follow.]`;
-    cache.set(cacheKey, msg, msg.length);
+    cache.set(cacheKey, { text: msg }, new TextEncoder().encode(msg).byteLength);
     return msg;
   }
 
@@ -176,10 +182,16 @@ export async function webFetch(raw: FetchInput, deps: FetchDeps = {}): Promise<s
   }
 
   const title = isHtml ? extractTitle(cheerio.load(html)) : "";
-  registerFetchedPage(raw.url, title);
+  deps.signal?.throwIfAborted();
+  registerFetchedPage(raw.url, title, deps.sources);
 
   out = truncate(out, maxBytes);
-  cache.set(cacheKey, out, new TextEncoder().encode(out).byteLength);
+  const encoder = new TextEncoder();
+  cache.set(
+    cacheKey,
+    { text: out, title },
+    encoder.encode(out).byteLength + encoder.encode(title).byteLength,
+  );
   return out;
 }
 

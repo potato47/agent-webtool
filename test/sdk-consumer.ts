@@ -1,4 +1,6 @@
 import {
+  SourceContext,
+  createSourceContext,
   ENGINE_NAMES,
   clearCollectedSources,
   collectedSources,
@@ -22,8 +24,11 @@ const searchInput: SearchInput = {
   limit: 3,
   timeoutMs: 5_000,
 };
-const fetchDeps: FetchDeps = {};
-const searchDeps: SearchDeps = { signal: new AbortController().signal };
+const context: SourceContext = createSourceContext();
+const fetchDeps: FetchDeps = { sources: context };
+const searchDeps: SearchDeps = { signal: new AbortController().signal, sources: context };
+const restored: SourceContext = createSourceContext(context.snapshot());
+restored.clear();
 
 const fetched: Promise<string> = webFetch(fetchInput, fetchDeps);
 const searched: Promise<SearchResponse> = webSearch(searchInput, searchDeps);

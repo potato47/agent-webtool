@@ -27,6 +27,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src/**/*", "bin/**/*", "test/**/*"],
-  "exclude": ["node_modules", "references", "scratch"]
+  "include": ["src/**/*", "bin/**/*", "test/**/*", "scripts/**/*"],
+  "exclude": ["node_modules", "references", "scratch", "test/sdk-consumer.ts"]
 }

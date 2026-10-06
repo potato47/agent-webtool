@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
 
 const {
+  SourceContext,
+  createSourceContext,
   ENGINE_NAMES,
   WebtoolError,
   clearCollectedSources,
@@ -12,6 +14,8 @@ const {
   webSearch,
 } = require("agent-webtool");
 
+assert(createSourceContext() instanceof SourceContext);
+assert.deepEqual(createSourceContext().snapshot(), []);
 assert.equal(typeof webFetch, "function");
 assert.equal(typeof webSearch, "function");
 assert.equal(typeof clearCollectedSources, "function");

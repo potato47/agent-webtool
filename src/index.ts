@@ -15,3 +15,5 @@ export type { FetchDeps } from "./core/fetch.ts";
 export type { SearchDeps } from "./core/search.ts";
 export { ENGINE_NAMES } from "./core/types.ts";
 export { fetchInputSchema, searchInputSchema } from "./schemas.ts";
+
+export { SourceContext, createSourceContext } from "./core/search.ts";

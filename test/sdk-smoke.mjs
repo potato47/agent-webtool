@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 
 import {
+  SourceContext,
+  createSourceContext,
   ENGINE_NAMES,
   WebtoolError,
   clearCollectedSources,
@@ -12,6 +14,8 @@ import {
   webSearch,
 } from "agent-webtool";
 
+assert(createSourceContext() instanceof SourceContext);
+assert.deepEqual(createSourceContext().snapshot(), []);
 assert.equal(typeof webFetch, "function");
 assert.equal(typeof webSearch, "function");
 assert.equal(typeof clearCollectedSources, "function");

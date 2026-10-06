@@ -72,11 +72,9 @@ export function normalizeUrl(input: string): string {
 export interface SearchDeps {
   fetch?: typeof fetchWithGuards;
   signal?: AbortSignal;
+  /** Citation state for this session; omitted uses the process-wide default. */
+  sources?: SourceContext;
 }
-
-// Sources collected across all web_search/web_fetch calls in this process, keyed by normalized URL.
-const sources = new Map<string, SearchResult>();
-let sourceCounter = 0;
 
 function cloneResult(result: SearchResult): SearchResult {
   return {
@@ -84,17 +82,6 @@ function cloneResult(result: SearchResult): SearchResult {
     engines: [...result.engines],
     meta: { ...result.meta },
   };
-}
-
-/** All web sources seen in this process, ordered by citation id. */
-export function collectedSources(): SearchResult[] {
-  return [...sources.values()].sort((a, b) => (a.id ?? 0) - (b.id ?? 0)).map(cloneResult);
-}
-
-/** Clear the process-wide citation index. Call only when no search is in flight. */
-export function clearCollectedSources(): void {
-  sources.clear();
-  sourceCounter = 0;
 }
 
 interface ScoredResult {
@@ -106,63 +93,114 @@ interface ScoredResult {
   meta: Record<string, string>;
 }
 
-function citeResult(result: ScoredResult): SearchResult {
-  const key = normalizeUrl(result.url);
-  const existing = sources.get(key);
-  if (existing) {
-    const current: SearchResult = {
+/** Isolated, serializable citation state. One context can be shared by concurrent calls in a session. */
+export class SourceContext {
+  private sources = new Map<string, SearchResult>();
+  private counter = 0;
+  constructor(initial: readonly SearchResult[] = []) {
+    const ids = new Set<number>();
+    for (const result of initial) {
+      const key = normalizeUrl(result.url);
+      if (
+        !Number.isSafeInteger(result.id) ||
+        result.id < 1 ||
+        ids.has(result.id) ||
+        this.sources.has(key)
+      ) {
+        throw new Error("Invalid source snapshot: duplicate URL or citation id");
+      }
+      ids.add(result.id);
+      this.sources.set(key, { ...cloneResult(result), url: key });
+      this.counter = Math.max(this.counter, result.id);
+    }
+  }
+  /** Return an independent snapshot, ordered by citation ID, for persistence or display. */
+  snapshot(): SearchResult[] {
+    return [...this.sources.values()].sort((a, b) => a.id - b.id).map(cloneResult);
+  }
+  /** Reset numbering after all calls using this context have settled. */
+  clear(): void {
+    this.sources.clear();
+    this.counter = 0;
+  }
+  cite(result: ScoredResult): SearchResult {
+    const key = normalizeUrl(result.url);
+    const existing = this.sources.get(key);
+    if (existing) {
+      const current: SearchResult = {
+        ...result,
+        url: key,
+        engines: [...result.engines],
+        meta: { ...result.meta },
+        id: existing.id,
+        fetched: existing.fetched,
+      };
+      const engines = [...existing.engines];
+      for (const engine of result.engines) {
+        if (!engines.includes(engine)) engines.push(engine);
+      }
+      const meta = { ...existing.meta, ...result.meta };
+      existing.title = result.title || existing.title;
+      existing.url = key;
+      existing.score = result.score;
+      existing.engines = engines;
+      existing.meta = meta;
+      if (result.snippet.length > existing.snippet.length) {
+        existing.snippet = result.snippet;
+      }
+      return current;
+    }
+    const cited: SearchResult = {
       ...result,
       url: key,
-      engines: [...result.engines],
-      meta: { ...result.meta },
-      id: existing.id,
-      fetched: existing.fetched,
+      id: ++this.counter,
+      fetched: false,
     };
-    const engines = [...existing.engines];
-    for (const engine of result.engines) {
-      if (!engines.includes(engine)) engines.push(engine);
-    }
-    const meta = { ...existing.meta, ...result.meta };
-    existing.title = result.title || existing.title;
-    existing.url = key;
-    existing.score = result.score;
-    existing.engines = engines;
-    existing.meta = meta;
-    if (result.snippet.length > existing.snippet.length) {
-      existing.snippet = result.snippet;
-    }
-    return current;
+    this.sources.set(key, cited);
+    return cloneResult(cited);
   }
-  const cited: SearchResult = {
-    ...result,
-    url: key,
-    id: ++sourceCounter,
-    fetched: false,
-  };
-  sources.set(key, cited);
-  return cloneResult(cited);
-}
 
-export function registerFetchedPage(url: string, title: string): SearchResult {
-  const key = normalizeUrl(url);
-  const existing = sources.get(key);
-  if (existing) {
-    existing.fetched = true;
-    if (!existing.title && title) existing.title = title;
-    return cloneResult(existing);
+  registerFetchedPage(url: string, title: string): SearchResult {
+    const key = normalizeUrl(url);
+    const existing = this.sources.get(key);
+    if (existing) {
+      existing.fetched = true;
+      if (!existing.title && title) existing.title = title;
+      return cloneResult(existing);
+    }
+    const cited: SearchResult = {
+      id: ++this.counter,
+      title,
+      url: key,
+      snippet: "",
+      score: 0,
+      engines: [],
+      meta: {},
+      fetched: true,
+    };
+    this.sources.set(key, cited);
+    return cloneResult(cited);
   }
-  const cited: SearchResult = {
-    id: ++sourceCounter,
-    title,
-    url: key,
-    snippet: "",
-    score: 0,
-    engines: [],
-    meta: {},
-    fetched: true,
-  };
-  sources.set(key, cited);
-  return cloneResult(cited);
+}
+/** Create a session citation index, optionally restoring a previously saved snapshot. */
+export function createSourceContext(initial: readonly SearchResult[] = []): SourceContext {
+  return new SourceContext(initial);
+}
+const defaultSources = createSourceContext();
+/** Snapshot of the default process-wide context only. */
+export function collectedSources(): SearchResult[] {
+  return defaultSources.snapshot();
+}
+/** Clear the default index only after all calls using it have settled. */
+export function clearCollectedSources(): void {
+  defaultSources.clear();
+}
+export function registerFetchedPage(
+  url: string,
+  title: string,
+  context = defaultSources,
+): SearchResult {
+  return context.registerFetchedPage(url, title);
 }
 
 function buildQuery(input: SearchInput): string {
@@ -384,7 +422,7 @@ export async function webSearch(raw: SearchInput, deps: SearchDeps = {}): Promis
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-    .map(citeResult);
+    .map((result) => (deps.sources ?? defaultSources).cite(result));
 
   return {
     text: formatResults(results, statuses),

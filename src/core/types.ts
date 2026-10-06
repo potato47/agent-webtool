@@ -43,7 +43,7 @@ export interface SearchResult {
   engines: EngineName[];
   /** Extra per-engine metadata, e.g. WeChat account name or Toutiao source. */
   meta: Record<string, string>;
-  /** Global citation number assigned within this process (1-based across all web_search/web_fetch calls). */
+  /** Citation number within the supplied SourceContext, or the default process-wide context (1-based). */
   id: number;
   /** Whether the full page was fetched via web_fetch. */
   fetched: boolean;

@@ -1,6 +1,6 @@
 {
   "name": "agent-webtool",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Web fetch and multi-engine search tools for AI agents (SDK + CLI + MCP server). No API keys required.",
   "keywords": [
     "agent",
@@ -48,6 +48,10 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "build": "bun run build:cli && bun run build:sdk",
     "build:cli": "bun build bin/cli.ts --target=node --format=esm --outfile=dist/cli.mjs && chmod +x dist/cli.mjs",
@@ -60,7 +64,11 @@
     "mcp": "bun bin/cli.ts mcp",
     "test": "bun test test/",
     "verify:sdk": "node test/sdk-smoke.mjs && node test/sdk-smoke.cjs && tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck test/sdk-consumer.ts",
-    "prepublishOnly": "bun run build && bun test test/ && bun run verify:sdk"
+    "prepublishOnly": "bun run check && bun test test/ && bun run npm:pack",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run npm:check",
+    "npm:check": "bun scripts/npm/check.ts",
+    "npm:pack": "bun run build && bun scripts/npm/pack.ts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

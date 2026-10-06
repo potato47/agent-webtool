@@ -4,6 +4,7 @@ node_modules
 # build artifacts not tracked in git — produced by `bun run build`
 out
 dist
+artifacts/
 *.tgz
 
 # probe / fixture refresh helpers, not for publish

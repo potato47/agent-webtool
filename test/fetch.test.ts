@@ -3,6 +3,7 @@ import {
   clearFetchCache,
   clearCollectedSources,
   collectedSources,
+  createSourceContext,
   webFetch,
 } from "../src/index.ts";
 import type { RawFetchResult } from "../src/core/http.ts";
@@ -29,6 +30,35 @@ function mockResp(body: string, contentType = "text/html"): RawFetchResult {
 }
 
 describe("webFetch", () => {
+  test("evicts cached pages when UTF-8 titles exceed the byte budget", async () => {
+    clearFetchCache();
+    const sources = createSourceContext();
+    // Each response is below the HTTP 10 MiB cap; six titles exceed the cache's 50 MiB.
+    const html = `<title>${"网".repeat(3 * 1024 * 1024)}</title><p>Hello</p>`;
+    let calls = 0;
+    const fetch = async () => {
+      calls++;
+      return mockResp(html);
+    };
+    const read = async (id: number) => {
+      await webFetch(
+        { url: `https://cache.example/title-${id}`, format: "html", maxBytes: 1 },
+        { fetch, sources },
+      );
+      sources.clear();
+    };
+    try {
+      for (let id = 0; id < 6; id++) await read(id);
+      await read(5);
+      expect(calls).toBe(6);
+      await read(0);
+      expect(calls).toBe(7);
+    } finally {
+      clearFetchCache();
+      sources.clear();
+    }
+  }, 30_000);
+
   test("markdown format converts HTML", async () => {
     clearFetchCache();
     const out = await webFetch(

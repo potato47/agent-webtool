@@ -254,7 +254,7 @@ If the content exceeds `--max-bytes`, the output ends with a `[truncated]` marke
 
 ### `web_search`
 
-Returns a citation list, one entry per result (number, title, URL, snippet). Citation numbers are stable across calls within the same process — the same URL keeps its `[n]`:
+Returns a citation list, one entry per result (number, title, URL, snippet). By default, citation numbers are stable across calls within the same process — the same URL keeps its `[n]`. The unreleased SDK source also supports explicit per-session contexts (see below):
 
 ```text
 [1] Bun — A fast all-in-one JavaScript runtime
@@ -346,6 +346,41 @@ clearCollectedSources();
 rejects the call and propagates the signal to the guarded HTTP layer without bypassing SSRF
 protection.
 
+### Per-session sources (since 0.7.0)
+
+The following API requires **agent-webtool 0.7.0 or newer**; it is not available in 0.6.0.
+Use a separate context for each conversation; pass the same context to both tools:
+
+```ts
+import { createSourceContext, webFetch, webSearch } from "agent-webtool";
+
+const sources = createSourceContext();
+const result = await webSearch({ query: "Bun runtime" }, { sources });
+if (result.results[0]) {
+  await webFetch({ url: result.results[0].url }, { sources });
+}
+
+const saved = JSON.stringify(sources.snapshot());
+const restored = createSourceContext(JSON.parse(saved));
+```
+
+Each context assigns IDs from 1, keeps the same ID for a normalized URL, and restores numbering
+above the largest saved ID. `snapshot()` copies result fields, including `engines` and `meta`;
+mutating that snapshot does not mutate the context. Duplicate IDs, duplicate normalized URLs,
+and invalid IDs are rejected during restoration. Persist snapshots in the application's storage;
+this library does not persist them automatically.
+
+Concurrent searches may share one context. Different contexts remain independent; creation
+of new IDs follows completion order, so it is not deterministic across concurrent runs.
+Call `sources.clear()` only after its in-flight calls have settled, or use a new context for a
+new session. Clearing resets IDs and does not cancel pending work.
+
+Omitting `sources` keeps the process-wide default used by CLI/MCP and legacy SDK calls.
+`collectedSources()` and `clearCollectedSources()` only operate on that default context.
+The fetch cache is shared across contexts, but a cache hit registers its page in the current
+context. Already-aborted calls reject before cache access. Cached content and titles count
+toward the 50 MiB cache budget; source-history retention is managed separately by the caller.
+
 ### CommonJS
 
 ```js
@@ -368,10 +403,12 @@ Search and fetch dependency options both accept an `AbortSignal`. TypeScript typ
 git clone https://github.com/potato47/agent-webtool.git
 cd agent-webtool
 bun install
+bun run check       # lint, format, source types, and package metadata
 bun test            # fixture-based tests; no network
 bun run cli -- search "test" --limit 3
 bun run build       # produces CLI, ESM/CJS SDK, and SDK type declarations
-bun run verify:sdk  # verifies ESM, CommonJS, and TypeScript consumers
+bun run verify:sdk  # verifies built ESM, CommonJS, and TypeScript consumers
+bun run npm:pack    # builds a tarball and installs it in a temporary SDK/CLI/MCP consumer
 ```
 
 The CLI build is a self-contained ESM file. The SDK build publishes standard ESM and
@@ -387,6 +424,17 @@ bun scratch/peek.ts                   # tests parsers against fresh capture
 ```
 
 ---
+
+## CI and npm releases
+
+Pull requests and pushes to `main` run checks and standalone package verification on Linux
+and macOS, including the minimum supported Node version. A `v<version>` tag runs the release
+workflow; the tag must match `package.json`. Stable versions publish to `latest`, prereleases
+to `next`. Manual workflow runs only verify and upload artifacts. Publishing uses an npm
+Trusted Publisher and the GitHub `npm` environment, without a long-lived npm token.
+
+See [release setup and validation](docs/npm-release.md) for configuration, checks, and the
+release evidence. Versions before 0.7.0 do not include the source-context additions above.
 
 ## Contributing
 
