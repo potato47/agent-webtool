@@ -58,4 +58,12 @@ git push origin v0.8.0
 
 ## 本次状态（2026-10-06）
 
-公开 registry 已确认 `0.6.0`，SHA-1 为 `4a9b5332511ffaa62cf1e59808616189fb5cb3c5`；其 SDK 无 `SourceContext` / `createSourceContext`。用户随后授权发布；版本已准备为 0.7.0，新增功能与工作流等待本次正式发行结果。已完成本地离线回归和独立 SDK/CLI/MCP 归档消费；GitHub runner、npm Trusted Publisher、实际 OIDC 发布和官网线上部署尚未验证。历史 Anychat 集成见 [来源隔离记录](anychat-integration-feedback.md)。
+0.7.0 已正式发布，tag 源码 `ec6a2afcea8a651d58ea9a4cec513a12089a27b3`。三平台 CI [37424449550](https://github.com/potato47/agent-webtool/actions/runs/37424449550)、手动只验收 [37424738211](https://github.com/potato47/agent-webtool/actions/runs/37424738211) 和正式 OIDC [37424883345](https://github.com/potato47/agent-webtool/actions/runs/37424883345) 均成功；npm latest 为 0.7.0，公开包带有 provenance。
+
+公开归档与正式 GitHub 验收归档逐字节一致，SHA-256 `5d51d108d64121172f213e83821eea7daa06cff7c0a2994303165bc354d46d52`，SHA-1 `a411bcd8a50e252af53175dc30316c4230bb58ac`。全新目录/缓存按 npm 版本安装后，ESM/CJS、TypeScript、两个 CLI、MCP 及来源上下文隔离/缓存登记/恢复/取消通过；真实搜索引擎未重新验收。
+
+Trusted Publisher 为 `potato47/agent-webtool` / `publish-npm.yml` / `npm`，允许 `npm publish`，未授予独立 dist-tag 管理。GitHub `npm` 环境仅允许本次精确 `v0.7.0` 标签；未来获授权的版本先增加对应精确 tag 规则，不自动放宽为所有标签。未添加长期 npm token，也未修改既有 npm 双因素保护。
+
+发布后 npm 曾提示处理需要几分钟，出现版本元数据但安装索引仍短暂返回 ETARGET；等待同步后全新缓存安装通过。若再次出现此情况，先等待并核对公开 registry，不重发或移动旧标签。
+
+官网已同步 0.7.0 指南，其部署结果由 Semicoder 工作流单独验收。旧公开 0.6.0 不包含 SourceContext，历史 Anychat 集成见 [来源隔离记录](anychat-integration-feedback.md)。
